@@ -129,7 +129,7 @@ def run_clang_format_and_count_changes(repo_path, config_string):
         # Run clang-format on the files, explicitly using the temporary config file
         # We need to provide the full path to the files relative to the repo root
         full_paths_to_format = [os.path.join(repo_path, f) for f in files_to_format]
-        clang_format_cmd = ["clang-format", f"-style={temp_config_file}", "-i"] + full_paths_to_format
+        clang_format_cmd = ["clang-format", f"-style=file:{temp_config_file}", "-i"] + full_paths_to_format
         try:
             # Run clang-format from the original directory, providing full paths
             # check=False because it might exit non-zero on formatting errors
