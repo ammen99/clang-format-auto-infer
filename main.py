@@ -39,28 +39,41 @@ def main():
         help="Path to the git repository to analyze."
     )
     parser.add_argument(
-        "output_file",
-        help="Path to the file where the optimized configuration will be written."
+        "--output",
+        dest="output_file",
+        help="Path to the file where the optimized configuration will be written (optional). If not provided, output is written to stdout."
     )
 
     args = parser.parse_args()
 
     # Basic validation (optional but good practice)
     if not os.path.isdir(args.repo_path):
-        print(f"Error: Repository path '{args.repo_path}' is not a valid directory.")
+        print(f"Error: Repository path '{args.repo_path}' is not a valid directory.", file=sys.stderr)
         exit(1)
 
     print(f"Analyzing repository: {args.repo_path}")
-    print(f"Output configuration to: {args.output_file}")
 
     options_output = get_clang_format_options()
 
-    if options_output:
-        print("\nSuccessfully retrieved clang-format options (first 100 chars):")
-        print(options_output[:100] + "...")
-        # TODO: Add the main logic for configuration optimization using these options
+    if not options_output:
+        print("\nFailed to retrieve clang-format options.", file=sys.stderr)
+        exit(1)
+
+    # TODO: Add the main logic for configuration optimization using these options
+    # For now, just handle writing the retrieved options
+
+    if args.output_file:
+        print(f"Writing configuration to: {args.output_file}")
+        try:
+            with open(args.output_file, "w") as f:
+                f.write(options_output)
+            print("Configuration written successfully.")
+        except IOError as e:
+            print(f"Error writing to file {args.output_file}: {e}", file=sys.stderr)
+            exit(1)
     else:
-        print("\nFailed to retrieve clang-format options.")
+        print("Writing configuration to stdout:")
+        print(options_output)
 
 
 if __name__ == "__main__":
