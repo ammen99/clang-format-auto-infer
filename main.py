@@ -238,41 +238,36 @@ def main():
 
     generated_config = generate_clang_format_config(options_info)
 
-    if args.output_file:
-        print(f"Writing configuration to: {args.output_file}")
-        try:
-            with open(args.output_file, "w") as f:
-                f.write(generated_config)
-            print("Configuration written successfully.")
-        except IOError as e:
-            print(f"Error writing to file {args.output_file}: {e}", file=sys.stderr)
-            exit(1)
+    # Test the run_clang_format_and_count_changes function
+    print("\nRunning clang-format with generated config and counting changes...")
+    changes = run_clang_format_and_count_changes(args.repo_path, generated_config)
+    if changes != -1:
+        print(f"Total lines changed by clang-format: {changes}")
+    else:
+        print("Failed to count changes.")
+
     # TODO: Add the main logic for configuration optimization using these options
-    # For now, generate and write the config from the parsed options
-
-    generated_config = generate_clang_format_config(options_info)
-
-    # Example usage of the new function (can be removed later)
-    # print("\nRunning clang-format with generated config and counting changes...")
-    # changes = run_clang_format_and_count_changes(args.repo_path, generated_config)
-    # if changes != -1:
-    #     print(f"Total lines changed by clang-format: {changes}")
-    # else:
-    #     print("Failed to count changes.")
-
+    # The following block handles writing the initial config, which might be useful
+    # to keep or modify depending on the optimization logic.
 
     if args.output_file:
-        print(f"Writing configuration to: {args.output_file}")
+        print(f"\nWriting initial configuration to: {args.output_file}")
         try:
             with open(args.output_file, "w") as f:
                 f.write(generated_config)
-            print("Configuration written successfully.")
+            print("Initial configuration written successfully.")
         except IOError as e:
             print(f"Error writing to file {args.output_file}: {e}", file=sys.stderr)
             exit(1)
     else:
-        print("Writing configuration to stdout:")
+        # If no output file is specified, we don't necessarily need to print the
+        # full config to stdout after running the test, but keeping it for now.
+        print("\nWriting initial configuration to stdout:")
         print(generated_config)
+
+
+if __name__ == "__main__":
+    main()
 
 
 if __name__ == "__main__":
