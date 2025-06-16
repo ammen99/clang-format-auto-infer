@@ -20,8 +20,8 @@ def parse_options(html_content):
     options_data = {}
 
     # Find the section containing the options
-    # The section starts with a heading like "Configurable Format Style Options"
-    options_section_heading = soup.find('h2', string='Configurable Format Style Options')
+    # Search for an h2 tag whose text starts with "Configurable Format Style Options"
+    options_section_heading = soup.find('h2', string=re.compile(r'^Configurable Format Style Options'))
 
     if not options_section_heading:
         print("Could not find the 'Configurable Format Style Options' section.", file=sys.stderr)
@@ -91,7 +91,7 @@ def parse_options(html_content):
 if __name__ == '__main__':
     url = "https://clang.llvm.org/docs/ClangFormatStyleOptions.html"
     html_content = fetch_html_content(url)
-    print(html_content)
+    # Removed the print(html_content) here as it was likely for debugging
 
     if html_content:
         options = parse_options(html_content)
