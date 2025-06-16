@@ -58,6 +58,20 @@ def parse_clang_format_options(yaml_string):
         print(f"Error parsing YAML output from clang-format: {e}", file=sys.stderr)
         return None
 
+def generate_clang_format_config(options_info):
+    """
+    Generates a YAML string for a .clang-format file from a dictionary of options.
+
+    Args:
+        options_info (dict): A dictionary mapping option names to their values.
+
+    Returns:
+        str: A YAML formatted string.
+    """
+    # We only need the values from the options_info dictionary
+    config_dict = {key: info['value'] for key, info in options_info.items()}
+    return yaml.dump(config_dict, default_flow_style=False, sort_keys=False)
+
 
 def main():
     """
@@ -103,23 +117,22 @@ def main():
         print(f"  {key}: type={info['type']}, value={info['value']}")
 
     # TODO: Add the main logic for configuration optimization using these options
-    # For now, just handle writing the retrieved options (the original YAML)
+    # For now, generate and write the config from the parsed options
+
+    generated_config = generate_clang_format_config(options_info)
 
     if args.output_file:
         print(f"Writing configuration to: {args.output_file}")
         try:
-            # We write the original YAML output, not the parsed structure,
-            # as the goal is to output a valid config file.
             with open(args.output_file, "w") as f:
-                f.write(options_output)
+                f.write(generated_config)
             print("Configuration written successfully.")
         except IOError as e:
             print(f"Error writing to file {args.output_file}: {e}", file=sys.stderr)
             exit(1)
     else:
         print("Writing configuration to stdout:")
-        # We write the original YAML output, not the parsed structure.
-        print(options_output)
+        print(generated_config)
 
 
 if __name__ == "__main__":
