@@ -98,9 +98,9 @@ def main():
         exit(1)
 
     print(f"\nSuccessfully parsed {len(options_info)} clang-format options.")
-    # print("Parsed options (first 5):")
-    # for i, (key, info) in enumerate(list(options_info.items())[:5]):
-    #     print(f"  {key}: type={info['type']}, value={info['value']}")
+    print("Parsed options (first 5):")
+    for i, (key, info) in enumerate(list(options_info.items())[:5]):
+        print(f"  {key}: type={info['type']}, value={info['value']}")
 
     # TODO: Add the main logic for configuration optimization using these options
     # For now, just handle writing the retrieved options (the original YAML)
