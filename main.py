@@ -5,6 +5,37 @@ import sys
 import yaml
 import re
 
+# Global debug flag
+DEBUG = False
+
+def run_command(cmd, capture_output=False, text=False, check=False, cwd=None):
+    """
+    Runs a subprocess command and optionally prints it if debug is enabled.
+
+    Args:
+        cmd (list): The command and its arguments.
+        capture_output (bool): Whether to capture stdout/stderr.
+        text (bool): Whether to decode stdout/stderr as text.
+        check (bool): If True, raise CalledProcessError on non-zero exit code.
+        cwd (str, optional): The working directory for the command.
+
+    Returns:
+        subprocess.CompletedProcess: The result of the subprocess run.
+    """
+    if DEBUG:
+        cmd_str = ' '.join(cmd)
+        cwd_str = f" (cwd: {cwd})" if cwd else ""
+        print(f"Executing command: {cmd_str}{cwd_str}", file=sys.stderr)
+
+    return subprocess.run(
+        cmd,
+        capture_output=capture_output,
+        text=text,
+        check=check,
+        cwd=cwd
+    )
+
+
 def get_clang_format_options():
     """
     Runs 'clang-format --dump-config' to get a list of all possible options.
@@ -84,7 +115,7 @@ def run_clang_format_and_count_changes(repo_path, config_string):
         # Use git ls-files to only format tracked files
         git_ls_files_cmd = ["git", "ls-files", "--", "*.c", "*.cc", "*.cpp", "*.cxx", "*.h", "*.hh", "*.hpp", "*.hxx", "*.m", "*.mm"]
         try:
-            result = subprocess.run(git_ls_files_cmd, capture_output=True, text=True, check=True, cwd=repo_path)
+            result = run_command(git_ls_files_cmd, capture_output=True, text=True, check=True, cwd=repo_path)
             files_to_format = result.stdout.splitlines()
         except subprocess.CalledProcessError as e:
             print(f"Error listing files in repo: {e}", file=sys.stderr)
@@ -101,7 +132,7 @@ def run_clang_format_and_count_changes(repo_path, config_string):
         try:
             # Run clang-format from the original directory, providing full paths
             # check=False because it might exit non-zero on formatting errors
-            subprocess.run(clang_format_cmd, check=False, capture_output=True, text=True)
+            run_command(clang_format_cmd, check=False, capture_output=True, text=True)
         except FileNotFoundError:
             print("Error: clang-format command not found. Please ensure it is installed and in your PATH.", file=sys.stderr)
             return -1
@@ -112,7 +143,7 @@ def run_clang_format_and_count_changes(repo_path, config_string):
         # Count changes using git diff --shortstat from the repo directory
         git_diff_cmd = ["git", "diff", "--shortstat"]
         try:
-            result = subprocess.run(git_diff_cmd, capture_output=True, text=True, check=True, cwd=repo_path)
+            result = run_command(git_diff_cmd, capture_output=True, text=True, check=True, cwd=repo_path)
             diff_output = result.stdout.strip()
 
             # Parse the output, e.g., " 1 file changed, 2 insertions(+), 2 deletions(-)"
@@ -155,8 +186,9 @@ def run_clang_format_and_count_changes(repo_path, config_string):
 
     finally:
         # Reset the repository changes
+        git_restore_cmd = ["git", "restore", "."]
         try:
-            subprocess.run(["git", "restore", "."], check=True, capture_output=True, text=True, cwd=repo_path)
+            run_command(git_restore_cmd, check=True, capture_output=True, text=True, cwd=repo_path)
         except subprocess.CalledProcessError as e:
             print(f"Error resetting git repository: {e}", file=sys.stderr)
             # Note: Returning -1 here might mask the actual clang-format change count
@@ -206,8 +238,17 @@ def main():
         dest="output_file",
         help="Path to the file where the optimized configuration will be written (optional). If not provided, output is written to stdout."
     )
+    parser.add_argument(
+        "-d", "--debug",
+        action="store_true",
+        help="Enable debug output (print commands being executed)."
+    )
 
     args = parser.parse_args()
+
+    # Set global debug flag
+    global DEBUG
+    DEBUG = args.debug
 
     # Basic validation (optional but good practice)
     if not os.path.isdir(args.repo_path):
