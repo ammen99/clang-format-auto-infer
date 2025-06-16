@@ -3,7 +3,6 @@ import os
 import subprocess
 import sys
 import yaml
-import tempfile
 import re
 
 def get_clang_format_options():
