@@ -11,6 +11,7 @@ DEBUG = False
 
 # Dictionary of options that should have a fixed, forced value and not be optimized.
 # Format: { "OptionName": ForcedValue, ... }
+# Assumes OptionName is globally unique even if nested in the YAML structure.
 FORCED_OPTIONS = {
     "DisableFormat": False, # We never want to disable formatting entirely
     # Add other options here if needed, e.g.,
@@ -88,6 +89,7 @@ def get_clang_format_options():
 def parse_clang_format_options(yaml_string):
     """
     Parses the YAML output from 'clang-format --dump-config' to identify options and their types.
+    Handles nested dictionaries recursively.
 
     Args:
         yaml_string (str): The YAML output string.
@@ -104,12 +106,25 @@ def parse_clang_format_options(yaml_string):
             print("Error: Parsed clang-format config is not a dictionary.", file=sys.stderr)
             return None
 
-        options_info = {}
-        for key, value in config.items():
-            value_type = type(value).__name__
-            options_info[key] = {'type': value_type, 'value': value}
+        # Helper function to recursively process the dictionary
+        def process_dict(data):
+            options_info = {}
+            if not isinstance(data, dict):
+                 # This case should ideally not happen if the top level is a dict,
+                 # but handles potential malformed nested structures.
+                 return data # Return the non-dict value as is
 
-        return options_info
+            for key, value in data.items():
+                value_type = type(value).__name__
+                if value_type == 'dict':
+                    # Recurse into nested dictionary
+                    options_info[key] = {'type': value_type, 'value': process_dict(value)}
+                else:
+                    # Store simple value and its type
+                    options_info[key] = {'type': value_type, 'value': value}
+            return options_info
+
+        return process_dict(config)
 
     except yaml.YAMLError as e:
         print(f"Error parsing YAML output from clang-format: {e}", file=sys.stderr)
@@ -247,17 +262,154 @@ def run_clang_format_and_count_changes(repo_path, config_string):
 def generate_clang_format_config(options_info):
     """
     Generates a YAML string for a .clang-format file from a dictionary of options.
+    Handles nested dictionaries recursively.
 
     Args:
         options_info (dict): A dictionary mapping option names to their info dicts
-                             (containing 'type' and 'value').
+                             (containing 'type' and 'value'). Can be nested.
 
     Returns:
         str: A YAML formatted string.
     """
-    # We only need the values from the options_info dictionary
-    config_dict = {key: info['value'] for key, info in options_info.items()}
-    return yaml.dump(config_dict, default_flow_style=False, sort_keys=False)
+    # Helper function to recursively extract values
+    def extract_values(data):
+        if not isinstance(data, dict):
+            return data # Return the simple value
+
+        config_dict = {}
+        for key, info in data.items():
+            # Assuming info is a dict {'type': ..., 'value': ...}
+            if info['type'] == 'dict':
+                # Recurse into nested dictionary
+                config_dict[key] = extract_values(info['value'])
+            else:
+                # Extract the simple value
+                config_dict[key] = info['value']
+        return config_dict
+
+    # Start extraction from the root
+    config_dict_values = extract_values(options_info)
+
+    # Dump the extracted dictionary to YAML
+    return yaml.dump(config_dict_values, default_flow_style=False, sort_keys=False)
+
+
+def optimize_boolean_option(parent_dict, option_name, repo_path, root_options_dict):
+    """
+    Optimizes a single boolean option by testing True and False values.
+
+    Args:
+        parent_dict (dict): The dictionary containing the option being optimized.
+                            This could be the root dict or a nested dict.
+        option_name (str): The name of the boolean option.
+        repo_path (str): Path to the git repository.
+        root_options_dict (dict): The top-level dictionary containing all options.
+                                  Needed to generate the full config for testing.
+    """
+    option_info = parent_dict[option_name]
+    original_value = option_info['value'] # Store original value in case of errors
+
+    # Check if the option is in the forced list
+    # Assumes option_name is globally unique
+    if option_name in FORCED_OPTIONS:
+        forced_value = FORCED_OPTIONS[option_name]
+        print(f"\nSkipping optimization for '{option_name}'. Forcing value to: {forced_value}", file=sys.stderr)
+        parent_dict[option_name]['value'] = forced_value
+        return # Skip optimization for forced options
+
+    print(f"\nOptimizing '{option_name}' (current: {original_value})...", file=sys.stderr)
+
+    # --- Test False ---
+    parent_dict[option_name]['value'] = False
+    config_false = generate_clang_format_config(root_options_dict)
+    print(f"  Testing '{option_name}: False'...", file=sys.stderr)
+    changes_false = run_clang_format_and_count_changes(repo_path, config_false)
+    if changes_false != -1:
+        print(f"    Changes with False: {changes_false}", file=sys.stderr)
+    else:
+        print(f"    Error testing False.", file=sys.stderr)
+
+    # --- Test True ---
+    parent_dict[option_name]['value'] = True
+    config_true = generate_clang_format_config(root_options_dict)
+    print(f"  Testing '{option_name}: True'...", file=sys.stderr)
+    changes_true = run_clang_format_and_count_changes(repo_path, config_true)
+    if changes_true != -1:
+         print(f"    Changes with True: {changes_true}", file=sys.stderr)
+    else:
+         print(f"    Error testing True.", file=sys.stderr)
+
+    # --- Decide Best Value ---
+    best_value = original_value # Default to original value
+    best_changes = float('inf')
+
+    # Case 1: Both tests failed
+    if changes_false == -1 and changes_true == -1:
+        print(f"  Both tests failed for '{option_name}'. Keeping original value: {original_value}", file=sys.stderr)
+        # Value is currently True from the last test, restore original
+        parent_dict[option_name]['value'] = original_value
+        return # Optimization failed for this option
+
+    # Case 2: Only False test succeeded
+    if changes_false != -1 and changes_true == -1:
+        best_value = False
+        best_changes = changes_false
+        print(f"  True test failed for '{option_name}'. Choosing False (changes: {best_changes})", file=sys.stderr)
+    # Case 3: Only True test succeeded
+    elif changes_false == -1 and changes_true != -1:
+        best_value = True
+        best_changes = changes_true
+        print(f"  False test failed for '{option_name}'. Choosing True (changes: {best_changes})", file=sys.stderr)
+    # Case 4: Both tests succeeded
+    elif changes_false != -1 and changes_true != -1:
+        if changes_false < changes_true:
+            best_value = False
+            best_changes = changes_false
+            print(f"  False resulted in fewer changes for '{option_name}'. Choosing False (changes: {changes_false})", file=sys.stderr)
+        elif changes_true < changes_false:
+            best_value = True
+            best_changes = changes_true
+            print(f"  True resulted in fewer changes for '{option_name}'. Choosing True (changes: {changes_true})", file=sys.stderr)
+        else: # changes_false == changes_true
+            best_value = original_value # Keep original on a tie
+            best_changes = changes_false # or changes_true
+            print(f"  Changes are equal for '{option_name}' ({best_changes}). Keeping original value: {original_value}", file=sys.stderr)
+
+    # Update the working dictionary with the chosen value (unless both failed, handled above)
+    if changes_false != -1 or changes_true != -1:
+         parent_dict[option_name]['value'] = best_value
+
+
+def optimize_options_recursively(current_options_dict, repo_path, root_options_dict):
+    """
+    Recursively iterates through options in a dictionary structure and optimizes boolean ones.
+
+    Args:
+        current_options_dict (dict): The dictionary currently being processed
+                                     (could be the root dict or a nested dict).
+                                     This dictionary is modified in place.
+        repo_path (str): Path to the git repository.
+        root_options_dict (dict): The top-level dictionary containing all options.
+                                  Needed to generate the full config for testing.
+    """
+    # Iterate over a list of keys to avoid issues modifying dict during iteration
+    for option_name in list(current_options_dict.keys()):
+        option_info = current_options_dict[option_name]
+
+        if option_info['type'] == 'dict':
+            # Recurse into nested dictionary
+            if DEBUG:
+                 print(f"Entering nested options for '{option_name}'...", file=sys.stderr)
+            optimize_options_recursively(option_info['value'], repo_path, root_options_dict)
+            if DEBUG:
+                 print(f"Exiting nested options for '{option_name}'.", file=sys.stderr)
+        elif option_info['type'] == 'bool':
+            # Optimize boolean option
+            optimize_boolean_option(current_options_dict, option_name, repo_path, root_options_dict)
+        else:
+            # Skip non-boolean, non-dict options
+            if DEBUG:
+                 print(f"Skipping non-boolean, non-dict option: '{option_name}' (type: {option_info['type']})", file=sys.stderr)
 
 
 def main():
@@ -314,79 +466,22 @@ def main():
         print("\nFailed to parse clang-format options.", file=sys.stderr)
         exit(1)
 
-    print(f"\nSuccessfully parsed {len(options_info)} clang-format options.")
+    # Note: The count from parse_clang_format_options is only top-level.
+    # A more accurate count would require traversing the structure.
+    print(f"\nSuccessfully parsed clang-format options structure.")
 
     # Create a working copy of options to optimize
+    # This copy will be modified recursively by the optimization functions
     optimized_options_info = copy.deepcopy(options_info)
 
-    print("\nStarting optimization for boolean options...")
+    print("\nStarting optimization...")
 
-    # Iterate through options and optimize boolean ones
-    # Iterate over a list of keys to avoid issues modifying dict during iteration
-    for option_name in list(options_info.keys()):
-        option_info = options_info[option_name] # Get info from original to check type
-        current_optimized_value = optimized_options_info[option_name]['value'] # Get current value from working copy
+    # Start the recursive optimization process from the root
+    optimize_options_recursively(optimized_options_info, repo_path_abs, optimized_options_info)
 
-        # Check if the option is in the forced list
-        if option_name in FORCED_OPTIONS:
-            forced_value = FORCED_OPTIONS[option_name]
-            print(f"\nSkipping optimization for '{option_name}'. Forcing value to: {forced_value}", file=sys.stderr)
-            optimized_options_info[option_name]['value'] = forced_value
-            continue # Skip to the next option
+    print("\nOptimization complete.")
 
-        if option_info['type'] == 'bool':
-            print(f"\nOptimizing '{option_name}' (current: {current_optimized_value})...", file=sys.stderr)
-
-            # --- Test False ---
-            optimized_options_info[option_name]['value'] = False
-            config_false = generate_clang_format_config(optimized_options_info)
-            print(f"  Testing '{option_name}: False'...", file=sys.stderr)
-            changes_false = run_clang_format_and_count_changes(repo_path_abs, config_false)
-            if changes_false != -1:
-                print(f"    Changes with False: {changes_false}", file=sys.stderr)
-            else:
-                print(f"    Error testing False.", file=sys.stderr)
-
-            # --- Test True ---
-            optimized_options_info[option_name]['value'] = True
-            config_true = generate_clang_format_config(optimized_options_info)
-            print(f"  Testing '{option_name}: True'...", file=sys.stderr)
-            changes_true = run_clang_format_and_count_changes(repo_path_abs, config_true)
-            if changes_true != -1:
-                 print(f"    Changes with True: {changes_true}", file=sys.stderr)
-            else:
-                 print(f"    Error testing True.", file=sys.stderr)
-
-            # --- Decide Best Value ---
-            best_value = current_optimized_value # Default to current value in case of errors
-            best_changes = float('inf')
-
-            if changes_false != -1:
-                best_changes = changes_false
-                best_value = False
-
-            # Use <= to prefer True if changes are equal, or if False test failed
-            if changes_true != -1 and changes_true <= best_changes:
-                 best_changes = changes_true
-                 best_value = True
-
-            # If both failed, keep original value (which is the default)
-            if changes_false == -1 and changes_true == -1:
-                 print(f"  Both tests failed for '{option_name}'. Keeping original value: {current_optimized_value}", file=sys.stderr)
-                 # The value in optimized_options_info is already the last one tested (True),
-                 # so we need to explicitly set it back to the original if both failed.
-                 optimized_options_info[option_name]['value'] = current_optimized_value
-            else:
-                 # Update the working dictionary with the chosen value
-                 optimized_options_info[option_name]['value'] = best_value
-                 print(f"  Chosen value for '{option_name}': {best_value} (changes: {best_changes})", file=sys.stderr)
-
-        # else:
-            # print(f"Skipping non-boolean option: {option_name} (type: {option_info['type']})") # Too verbose for default run
-
-    print("\nBoolean option optimization complete.")
-
-    # Generate the final optimized configuration
+    # Generate the final optimized configuration from the modified structure
     optimized_config = generate_clang_format_config(optimized_options_info)
 
     # Output the final configuration
