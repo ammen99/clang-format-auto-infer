@@ -9,6 +9,16 @@ import copy
 # Global debug flag
 DEBUG = False
 
+# Dictionary of options that should have a fixed, forced value and not be optimized.
+# Format: { "OptionName": ForcedValue, ... }
+FORCED_OPTIONS = {
+    "DisableFormat": False, # We never want to disable formatting entirely
+    # Add other options here if needed, e.g.,
+    # "UseTab": "Never",
+    # "IndentWidth": 4,
+}
+
+
 def run_command(cmd, capture_output=False, text=False, check=False, cwd=None):
     """
     Runs a subprocess command and optionally prints it if debug is enabled.
@@ -316,6 +326,13 @@ def main():
     for option_name in list(options_info.keys()):
         option_info = options_info[option_name] # Get info from original to check type
         current_optimized_value = optimized_options_info[option_name]['value'] # Get current value from working copy
+
+        # Check if the option is in the forced list
+        if option_name in FORCED_OPTIONS:
+            forced_value = FORCED_OPTIONS[option_name]
+            print(f"\nSkipping optimization for '{option_name}'. Forcing value to: {forced_value}", file=sys.stderr)
+            optimized_options_info[option_name]['value'] = forced_value
+            continue # Skip to the next option
 
         if option_info['type'] == 'bool':
             print(f"\nOptimizing '{option_name}' (current: {current_optimized_value})...", file=sys.stderr)
