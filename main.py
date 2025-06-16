@@ -1,5 +1,31 @@
 import argparse
 import os
+import subprocess
+import sys
+
+def get_clang_format_options():
+    """
+    Runs 'clang-format --dump-config' to get a list of all possible options.
+
+    Returns:
+        str: The output from 'clang-format --dump-config'.
+        None: If clang-format is not found or an error occurs.
+    """
+    try:
+        result = subprocess.run(
+            ["clang-format", "--dump-config"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return result.stdout
+    except FileNotFoundError:
+        print("Error: clang-format command not found. Please ensure it is installed and in your PATH.", file=sys.stderr)
+        return None
+    except subprocess.CalledProcessError as e:
+        print(f"Error running clang-format: {e}", file=sys.stderr)
+        print(f"Stderr: {e.stderr}", file=sys.stderr)
+        return None
 
 def main():
     """
@@ -27,7 +53,15 @@ def main():
     print(f"Analyzing repository: {args.repo_path}")
     print(f"Output configuration to: {args.output_file}")
 
-    # TODO: Add the main logic for configuration optimization
+    options_output = get_clang_format_options()
+
+    if options_output:
+        print("\nSuccessfully retrieved clang-format options (first 100 chars):")
+        print(options_output[:100] + "...")
+        # TODO: Add the main logic for configuration optimization using these options
+    else:
+        print("\nFailed to retrieve clang-format options.")
+
 
 if __name__ == "__main__":
     main()
