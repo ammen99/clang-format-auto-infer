@@ -4,6 +4,7 @@ import subprocess
 import sys
 import yaml
 import re
+import copy
 
 # Global debug flag
 DEBUG = False
