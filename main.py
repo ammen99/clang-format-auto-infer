@@ -44,9 +44,10 @@ def get_clang_format_options():
         str: The output from 'clang-format --dump-config'.
         None: If clang-format is not found or an error occurs.
     """
+    cmd = ["clang-format", "--dump-config"]
     try:
-        result = subprocess.run(
-            ["clang-format", "--dump-config"],
+        result = run_command(
+            cmd,
             capture_output=True,
             text=True,
             check=True
