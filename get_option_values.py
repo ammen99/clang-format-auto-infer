@@ -79,7 +79,6 @@ def parse_options(html_content):
                         'possible_values': values if values else None # Store None if no specific values listed
                     }
 
-
         # Move to the next sibling element
         current_element = current_element.find_next_sibling()
         # Stop if we hit the next major section heading (h2)
@@ -92,6 +91,7 @@ def parse_options(html_content):
 if __name__ == '__main__':
     url = "https://clang.llvm.org/docs/ClangFormatStyleOptions.html"
     html_content = fetch_html_content(url)
+    print(html_content)
 
     if html_content:
         options = parse_options(html_content)
