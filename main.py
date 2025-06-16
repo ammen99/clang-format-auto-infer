@@ -75,19 +75,17 @@ def run_clang_format_and_count_changes(repo_path, config_string):
     original_cwd = os.getcwd()
     os.chdir(repo_path)
 
-    temp_config_file = None
+    temp_config_file = "/tmp/clang.format"
     try:
-        # Create a temporary .clang-format file in the repo root
-        # Use delete=False so clang-format can access it by path
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, prefix='.clang-format-', dir='.', suffix='.yaml') as tmp_file:
+        # Write the configuration to the fixed temporary file path
+        with open(temp_config_file, 'w') as tmp_file:
             tmp_file.write(config_string)
-            temp_config_file = tmp_file.name
 
         # Find files to format (common C/C++ extensions)
         # Use git ls-files to only format tracked files
         git_ls_files_cmd = ["git", "ls-files", "--", "*.c", "*.cc", "*.cpp", "*.cxx", "*.h", "*.hh", "*.hpp", "*.hxx", "*.m", "*.mm"]
         try:
-            result = subprocess.run(git_ls_files_cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(git_ls_files_cmd, capture_output=True, text=True, check=True, cwd=repo_path)
             files_to_format = result.stdout.splitlines()
         except subprocess.CalledProcessError as e:
             print(f"Error listing files in repo: {e}", file=sys.stderr)
@@ -97,10 +95,13 @@ def run_clang_format_and_count_changes(repo_path, config_string):
             print("No C/C++/Objective-C files found in the repository to format.", file=sys.stderr)
             return 0 # No files to format means no changes
 
-        # Run clang-format on the files
-        clang_format_cmd = ["clang-format", "-style=file", "-i"] + files_to_format
+        # Run clang-format on the files, explicitly using the temporary config file
+        # We need to provide the full path to the files relative to the repo root
+        full_paths_to_format = [os.path.join(repo_path, f) for f in files_to_format]
+        clang_format_cmd = ["clang-format", f"-style={temp_config_file}", "-i"] + full_paths_to_format
         try:
-            # Run in the background as it can be noisy, check=False because it might exit non-zero on formatting errors
+            # Run clang-format from the original directory, providing full paths
+            # check=False because it might exit non-zero on formatting errors
             subprocess.run(clang_format_cmd, check=False, capture_output=True, text=True)
         except FileNotFoundError:
             print("Error: clang-format command not found. Please ensure it is installed and in your PATH.", file=sys.stderr)
@@ -109,10 +110,10 @@ def run_clang_format_and_count_changes(repo_path, config_string):
             print(f"Error running clang-format: {e}", file=sys.stderr)
             return -1
 
-        # Count changes using git diff --shortstat
+        # Count changes using git diff --shortstat from the repo directory
         git_diff_cmd = ["git", "diff", "--shortstat"]
         try:
-            result = subprocess.run(git_diff_cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(git_diff_cmd, capture_output=True, text=True, check=True, cwd=repo_path)
             diff_output = result.stdout.strip()
 
             # Parse the output, e.g., " 1 file changed, 2 insertions(+), 2 deletions(-)"
@@ -156,7 +157,7 @@ def run_clang_format_and_count_changes(repo_path, config_string):
     finally:
         # Reset the repository changes
         try:
-            subprocess.run(["git", "restore", "."], check=True, capture_output=True, text=True)
+            subprocess.run(["git", "restore", "."], check=True, capture_output=True, text=True, cwd=repo_path)
         except subprocess.CalledProcessError as e:
             print(f"Error resetting git repository: {e}", file=sys.stderr)
             # Note: Returning -1 here might mask the actual clang-format change count
@@ -164,11 +165,15 @@ def run_clang_format_and_count_changes(repo_path, config_string):
             # For now, we'll just print the error.
 
         # Clean up the temporary config file
-        if temp_config_file and os.path.exists(temp_config_file):
-            os.remove(temp_config_file)
+        if os.path.exists(temp_config_file):
+            try:
+                os.remove(temp_config_file)
+            except OSError as e:
+                print(f"Error removing temporary config file {temp_config_file}: {e}", file=sys.stderr)
 
-        # Change back to the original directory
-        os.chdir(original_cwd)
+        # Change back to the original directory (if it was changed)
+        if os.getcwd() != original_cwd:
+             os.chdir(original_cwd)
 
 
 def generate_clang_format_config(options_info):
