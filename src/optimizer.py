@@ -6,6 +6,14 @@ import random
 from .repo_formatter import run_clang_format_and_count_changes
 from .clang_format_parser import generate_clang_format_config
 
+# Try to import matplotlib, provide a fallback if not available
+try:
+    import matplotlib.pyplot as plt
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    print("Warning: matplotlib not found. Fitness plotting will be disabled. Install with 'pip install matplotlib' to enable.", file=sys.stderr)
+    MATPLOTLIB_AVAILABLE = False
+
 def optimize_option_with_values(flat_options_info, full_option_path, repo_path, possible_values, debug=False):
     """
     Optimizes a single option by testing each value in the provided list.
@@ -285,7 +293,7 @@ def _perform_migration(populations, debug=False):
                     print(f"  Migrant from island {source_idx} added to island {target_island_idx} (was unexpectedly empty).", file=sys.stderr)
 
 
-def genetic_optimize_all_options(base_options_info, repo_path, json_options_lookup, forced_options_lookup, num_iterations, total_population_size, num_islands, debug=False):
+def genetic_optimize_all_options(base_options_info, repo_path, json_options_lookup, forced_options_lookup, num_iterations, total_population_size, num_islands, debug=False, plot_fitness=False):
     """
     Optimizes clang-format configuration using a genetic algorithm with an island model.
 
@@ -299,6 +307,7 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
         total_population_size (int): The total number of individuals across all islands.
         num_islands (int): The number of independent populations (islands).
         debug (bool): Enable debug output.
+        plot_fitness (bool): If True, visualize the best fitness over time for each island.
 
     Returns:
         dict: The flat dictionary of the best clang-format configuration found.
@@ -345,6 +354,28 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
     best_overall_individual = min(all_individuals, key=lambda x: x['fitness'])
     print(f"\nInitial overall best fitness: {best_overall_individual['fitness']}", file=sys.stderr)
 
+    # Data structure to store best fitness for each island over time
+    fitness_history_per_island = [[] for _ in range(num_islands)]
+
+    # Setup plot if requested and matplotlib is available
+    if plot_fitness and MATPLOTLIB_AVAILABLE:
+        plt.ion() # Turn on interactive mode
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.set_title("Best Fitness Over Generations for Each Island")
+        ax.set_xlabel("Generation")
+        ax.set_ylabel("Best Fitness (Number of Changes)")
+        ax.grid(True)
+        lines = [ax.plot([], [], label=f'Island {i+1}')[0] for i in range(num_islands)]
+        ax.legend()
+        fig.show() # Show the figure immediately
+        fig.canvas.draw()
+        fig.canvas.flush_events()
+        plt.pause(0.01) # Give time for plot to render
+    elif plot_fitness and not MATPLOTLIB_AVAILABLE:
+        print("Plotting requested but matplotlib is not available. Skipping plot.", file=sys.stderr)
+        plot_fitness = False # Disable plotting for the rest of the function
+
+
     # Migration interval (e.g., migrate every 10 generations)
     MIGRATION_INTERVAL = 10
 
@@ -355,16 +386,29 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
         # Evolve each island independently
         for i, island_pop in enumerate(populations):
             print(f"  Evolving Island {i + 1}...", file=sys.stderr)
-            new_island_pop, best_in_island = _evolve_island_generation(
+            new_island_pop, best_in_island_for_this_gen = _evolve_island_generation(
                 island_pop, repo_path, json_options_lookup, forced_options_lookup, island_population_size, debug
             )
             populations[i] = new_island_pop # Update the island's population
-            print(f"    Island {i + 1} best fitness: {best_in_island['fitness']}", file=sys.stderr)
+            print(f"    Island {i + 1} best fitness: {best_in_island_for_this_gen['fitness']}", file=sys.stderr)
+
+            # Store fitness for plotting
+            fitness_history_per_island[i].append(best_in_island_for_this_gen['fitness'])
 
             # Update overall best individual if this island found a better one
-            if best_in_island['fitness'] < best_overall_individual['fitness']:
-                best_overall_individual = best_in_island
+            if best_in_island_for_this_gen['fitness'] < best_overall_individual['fitness']:
+                best_overall_individual = best_in_island_for_this_gen
                 print(f"    New overall best fitness found: {best_overall_individual['fitness']}", file=sys.stderr)
+
+        # Update plot after all islands have evolved in this iteration
+        if plot_fitness:
+            for i, history in enumerate(fitness_history_per_island):
+                lines[i].set_data(range(len(history)), history)
+            ax.relim() # Recalculate limits
+            ax.autoscale_view() # Autoscale axes
+            fig.canvas.draw()
+            fig.canvas.flush_events()
+            plt.pause(0.01) # Short pause to allow plot to update
 
         # Perform migration periodically if there's more than one island
         if num_islands > 1 and (iteration + 1) % MIGRATION_INTERVAL == 0:
@@ -385,5 +429,11 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
 
 
     print(f"\nGenetic algorithm finished. Best overall fitness: {best_overall_individual['fitness']}", file=sys.stderr)
+    
+    # Keep the plot open at the end if it was generated
+    if plot_fitness:
+        plt.ioff() # Turn off interactive mode
+        plt.show() # Show the final plot and block until closed
+
     return best_overall_individual['config']
 

@@ -85,6 +85,11 @@ def main():
         default=1,
         help="Number of independent populations (islands) for the genetic algorithm. Set to 1 for a single population."
     )
+    parser.add_argument(
+        "--plot-fitness",
+        action="store_true",
+        help="Visualize the best fitness score over time for each island."
+    )
 
     args = parser.parse_args()
 
@@ -155,7 +160,8 @@ def main():
         num_iterations=args.iterations,
         total_population_size=args.population_size, # Pass total population size
         num_islands=args.islands, # Pass number of islands
-        debug=DEBUG
+        debug=DEBUG,
+        plot_fitness=args.plot_fitness # Pass the new plot_fitness flag
     )
 
     print("\nOptimization complete.", file=sys.stderr)
