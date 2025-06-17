@@ -30,3 +30,5 @@ class IslandEvolutionArgs:
     repo_path: str # Specific repo path for this island's worker
     lookups: GeneticAlgorithmLookups # Pass the lookups here
     debug: bool # Pass debug flag here
+    file_sample_percentage: float # New: Percentage of files to sample for fitness calculation
+    random_seed: int # New: Seed for random file sampling

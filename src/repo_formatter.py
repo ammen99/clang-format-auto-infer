@@ -3,9 +3,10 @@ import subprocess
 import sys
 import re
 import shutil
+import random # New import for file sampling
 from .utils import run_command # Import run_command from utils
 
-def run_clang_format_and_count_changes(repo_path, config_string, debug=False):
+def run_clang_format_and_count_changes(repo_path, config_string, debug=False, file_sample_percentage=100.0, random_seed=None):
     """
     Runs a clang-format configuration on a repository, counts changes, and resets.
 
@@ -13,6 +14,10 @@ def run_clang_format_and_count_changes(repo_path, config_string, debug=False):
         repo_path (str): Path to the git repository.
         config_string (str): The clang-format configuration as a YAML string.
         debug (bool): Enable debug output for run_command.
+        file_sample_percentage (float): Percentage of files to randomly sample for formatting.
+                                        Must be between 0.0 and 100.0.
+        random_seed (int, optional): Seed for the random number generator used for file sampling.
+                                     If None, a non-deterministic sample will be used.
 
     Returns:
         int or float('inf'): The total number of lines added or deleted by clang-format (>= 0).
@@ -51,6 +56,24 @@ def run_clang_format_and_count_changes(repo_path, config_string, debug=False):
                  print("No C/C++/Objective-C files found in the repository to format.", file=sys.stderr)
             return 0 # No files to format means no changes
 
+        # Apply file sampling if percentage is less than 100%
+        if file_sample_percentage < 100.0:
+            num_files_to_sample = max(1, int(len(files_to_format) * (file_sample_percentage / 100.0)))
+            if num_files_to_sample > len(files_to_format):
+                num_files_to_sample = len(files_to_format) # Cap at total number of files
+
+            if debug:
+                print(f"  Sampling {num_files_to_sample} files ({file_sample_percentage:.1f}%) from {len(files_to_format)} available files.", file=sys.stderr)
+
+            # Use a seeded random generator for reproducibility
+            if random_seed is not None:
+                rng = random.Random(random_seed)
+                sampled_files = rng.sample(files_to_format, num_files_to_sample)
+            else:
+                # Fallback if no seed is provided (less reproducible)
+                sampled_files = random.sample(files_to_format, num_files_to_sample)
+            files_to_format = sampled_files
+        
         # Run clang-format on the files, explicitly using the temporary config file
         # We need to provide the full path to the files relative to the repo root
         # clang-format expects paths relative to the current directory, which is repo_path
@@ -172,4 +195,3 @@ def run_clang_format_and_count_changes(repo_path, config_string, debug=False):
                  # This is a significant issue, the script might leave the user in the wrong directory
                  # Consider exiting or raising here.
                  pass # Continue script execution
-

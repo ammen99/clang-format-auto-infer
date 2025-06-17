@@ -53,7 +53,7 @@ def _signal_handler(sig, frame):
 signal.signal(signal.SIGINT, _signal_handler)
 
 
-def optimize_option_with_values(flat_options_info, full_option_path, repo_path, possible_values, debug=False):
+def optimize_option_with_values(flat_options_info, full_option_path, repo_path, possible_values, debug=False, file_sample_percentage=100.0, random_seed=None):
     """
     Optimizes a single option by testing each value in the provided list.
 
@@ -64,6 +64,8 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
         repo_path (str): Path to the git repository (one of the temporary copies).
         possible_values (list): A list of values to test for this option.
         debug (bool): Enable debug output.
+        file_sample_percentage (float): Percentage of files to sample for fitness calculation.
+        random_seed (int, optional): Seed for random file sampling.
     """
     option_info = flat_options_info[full_option_path]
     original_value = option_info['value'] # Store original value
@@ -126,7 +128,13 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
 
         # run_clang_format_and_count_changes will now exit on critical clang-format error,
         # return float('inf') on invalid config error, or return >= 0 on success, or -1 on git error.
-        changes = run_clang_format_and_count_changes(repo_path, config_string, debug=debug)
+        changes = run_clang_format_and_count_changes(
+            repo_path,
+            config_string,
+            debug=debug,
+            file_sample_percentage=file_sample_percentage, # Pass new arg
+            random_seed=random_seed # Pass new arg
+        )
 
         # We now consider float('inf') as a valid (but high) result, not an error to skip
         if changes != -1: # Only skip if it's a git-related error (-1)
@@ -174,7 +182,7 @@ def crossover(parent1_config, parent2_config):
             child_config[option_path] = copy.deepcopy(parent2_config[option_path])
     return child_config
 
-def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, debug: bool):
+def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, debug: bool, file_sample_percentage: float, random_seed: int):
     """
     Mutates an individual by selecting one random mutable option and optimizing its value
     by testing all possible values using optimize_option_with_values.
@@ -184,6 +192,8 @@ def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, 
         repo_path (str): Path to the git repository (one of the temporary copies).
         lookups (GeneticAlgorithmLookups): Lookup for possible option values and forced options.
         debug (bool): Enable debug output.
+        file_sample_percentage (float): Percentage of files to sample for fitness calculation.
+        random_seed (int): Seed for random file sampling.
     """
     # Make a deep copy to avoid modifying the original individual directly before evaluation
     mutated_config = copy.deepcopy(individual_config)
@@ -224,7 +234,15 @@ def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, 
     # Use the existing optimize_option_with_values to find the best value for this single option.
     # It modifies `mutated_config` in place.
     # Pass the specific repo_path for this worker and the shared event
-    optimize_option_with_values(mutated_config, option_to_mutate_path, repo_path, possible_values, debug=debug)
+    optimize_option_with_values(
+        mutated_config,
+        option_to_mutate_path,
+        repo_path,
+        possible_values,
+        debug=debug,
+        file_sample_percentage=file_sample_percentage, # Pass new arg
+        random_seed=random_seed # Pass new arg
+    )
 
     return mutated_config
 
@@ -245,6 +263,8 @@ def _evolve_island_generation_task(island_evolution_args: IslandEvolutionArgs):
     lookups = island_evolution_args.lookups
     island_population_size = island_evolution_args.island_population_size
     debug = island_evolution_args.debug
+    file_sample_percentage = island_evolution_args.file_sample_percentage # New arg
+    random_seed = island_evolution_args.random_seed # New arg
 
     new_generation_candidates = []
 
@@ -280,7 +300,14 @@ def _evolve_island_generation_task(island_evolution_args: IslandEvolutionArgs):
 
         # Mutation: Mutate one random option in the child
         # Pass the specific repo_path for this worker
-        mutated_child_config = mutate(child_config, repo_path, lookups, debug)
+        mutated_child_config = mutate(
+            child_config,
+            repo_path,
+            lookups,
+            debug,
+            file_sample_percentage=file_sample_percentage, # Pass new arg
+            random_seed=random_seed # Pass new arg
+        )
 
         # Apply forced options to the mutated child (ensure they are always respected)
         for forced_path, forced_value in lookups.forced_options_lookup.items():
@@ -289,7 +316,13 @@ def _evolve_island_generation_task(island_evolution_args: IslandEvolutionArgs):
 
         # Evaluate fitness of the mutated child
         # Use the specific repo_path for this worker
-        child_fitness = run_clang_format_and_count_changes(repo_path, generate_clang_format_config(mutated_child_config), debug=debug)
+        child_fitness = run_clang_format_and_count_changes(
+            repo_path,
+            generate_clang_format_config(mutated_child_config),
+            debug=debug,
+            file_sample_percentage=file_sample_percentage, # Pass new arg
+            random_seed=random_seed # Pass new arg
+        )
         new_generation_candidates.append({'config': mutated_child_config, 'fitness': child_fitness})
 
     # Selection for next generation: Sort all candidates and take the top `island_population_size`
@@ -362,7 +395,7 @@ def _perform_migration(populations, debug=False):
                     print(f"  Migrant from island {source_idx} added to island {target_island_idx} (was unexpectedly empty).", file=sys.stderr)
 
 
-def genetic_optimize_all_options(base_options_info, repo_paths: List[str], lookups: GeneticAlgorithmLookups, ga_config: OptimizationConfig):
+def genetic_optimize_all_options(base_options_info, repo_paths: List[str], lookups: GeneticAlgorithmLookups, ga_config: OptimizationConfig, file_sample_percentage: float, random_seed: int):
     """
     Optimizes clang-format configuration using a genetic algorithm with an island model.
 
@@ -373,6 +406,8 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
                                            option values and forced options.
         ga_config (OptimizationConfig): A dataclass containing configuration parameters
                                         for the genetic algorithm.
+        file_sample_percentage (float): Percentage of files to sample for fitness calculation.
+        random_seed (int): Seed for random file sampling.
 
     Returns:
         dict: The flat dictionary of the best clang-format configuration found.
@@ -424,7 +459,13 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
         print("Error: No repository paths provided for initialization.", file=sys.stderr)
         return {} # Or raise an error
 
-    base_fitness = run_clang_format_and_count_changes(initial_repo_path, generate_clang_format_config(base_individual_config), debug=debug)
+    base_fitness = run_clang_format_and_count_changes(
+        initial_repo_path,
+        generate_clang_format_config(base_individual_config),
+        debug=debug,
+        file_sample_percentage=file_sample_percentage, # Pass new arg
+        random_seed=random_seed # Pass new arg
+    )
     print(f"Initial base configuration fitness: {base_fitness}", file=sys.stderr)
 
     # Initialize each island's population with copies of the base individual
@@ -506,6 +547,8 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
                     repo_path=repo_path_for_island,
                     lookups=lookups,
                     debug=debug,
+                    file_sample_percentage=file_sample_percentage, # Pass new arg
+                    random_seed=random_seed # Pass new arg
                 ))
 
             # Run island evolutions in parallel

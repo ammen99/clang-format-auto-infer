@@ -14,6 +14,11 @@ from src.data_classes import OptimizationConfig, GeneticAlgorithmLookups # New i
 # Global debug flag (will be set from args)
 DEBUG = False
 
+# Fixed random seed for reproducibility of file sampling
+# This ensures that if file sampling is used, the same subset of files is chosen
+# for fitness evaluation across different runs with the same parameters.
+RANDOM_SEED = 42
+
 def find_options_without_json_values(flat_options_info, json_options_lookup, forced_options_lookup, missing_list):
     """
     Finds options in the flat dump-config structure that are not in the
@@ -103,6 +108,12 @@ def main():
         "--start-config-file",
         dest="start_config_file",
         help="Path to an existing .clang-format file to use as the starting configuration for optimization. If not provided, defaults from 'clang-format --dump-config' are used."
+    )
+    parser.add_argument(
+        "--file-sample-percentage",
+        type=float,
+        default=100.0,
+        help="Percentage of files to randomly sample for fitness calculation (0.0-100.0). Use a lower value for faster but less accurate optimization."
     )
 
     args = parser.parse_args()
@@ -226,7 +237,9 @@ def main():
             options_info, # Base configuration for population initialization
             temp_repo_paths, # Pass the list of temporary repo paths
             ga_lookups, # Pass the lookups object
-            opt_config # Pass the optimization config object
+            opt_config, # Pass the optimization config object
+            args.file_sample_percentage, # Pass file sampling percentage
+            RANDOM_SEED # Pass the fixed random seed
         )
 
         print("\nOptimization complete.", file=sys.stderr)
