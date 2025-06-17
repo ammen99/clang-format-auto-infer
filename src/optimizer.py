@@ -403,6 +403,7 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
 
     # Setup plot if requested and matplotlib is available
     if plot_fitness and MATPLOTLIB_AVAILABLE:
+        assert plt is not None # Assert plt is not None here
         plt.ion() # Turn on interactive mode
         fig, ax = plt.subplots(figsize=(10, 6))
         ax.set_title("Best Fitness Over Generations for Each Island")
@@ -453,7 +454,6 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
 
         # Update plot after all islands have evolved in this iteration
         if plot_fitness and not _stop_optimization_flag: # Only update if not interrupted
-            # These asserts are for static analysis, as MATPLOTLIB_AVAILABLE check ensures they are not None
             assert ax is not None
             assert fig is not None
             for i, history in enumerate(fitness_history_per_island):
@@ -486,9 +486,8 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
 
     # Keep the plot open at the end if it was generated
     if plot_fitness and MATPLOTLIB_AVAILABLE: # Check MATPLOTLIB_AVAILABLE again before final show
-        assert plt
+        assert plt is not None # Assert plt is not None here
         plt.ioff() # Turn off interactive mode
         plt.show() # Show the final plot and block until closed
 
     return best_overall_individual['config']
-
