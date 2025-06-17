@@ -1,8 +1,10 @@
 import sys
 import copy
-import random # New import for genetic algorithm
-from .repo_formatter import run_clang_format_and_count_changes # Import formatter
-from .clang_format_parser import generate_clang_format_config # Import config generator
+import random
+
+# Import formatter and config generator
+from .repo_formatter import run_clang_format_and_count_changes
+from .clang_format_parser import generate_clang_format_config
 
 def optimize_option_with_values(flat_options_info, full_option_path, repo_path, possible_values, debug=False):
     """
@@ -152,9 +154,140 @@ def mutate(individual_config, json_options_lookup, forced_options_lookup, repo_p
 
     return mutated_config
 
-def genetic_optimize_all_options(base_options_info, repo_path, json_options_lookup, forced_options_lookup, num_iterations, max_individuals, debug=False):
+def _evolve_island_generation(population, repo_path, json_options_lookup, forced_options_lookup, island_population_size, debug=False):
     """
-    Optimizes clang-format configuration using a genetic algorithm.
+    Performs one generation of evolution for a single island's population.
+
+    Args:
+        population (list): The current list of individuals for this island.
+                           Each individual is {'config': dict, 'fitness': float}.
+        repo_path (str): Path to the git repository.
+        json_options_lookup (dict): Lookup for possible option values.
+        forced_options_lookup (dict): Lookup for forced option values.
+        island_population_size (int): The target size of this island's population.
+        debug (bool): Enable debug output.
+
+    Returns:
+        tuple: (new_population, best_individual_in_generation)
+    """
+    new_generation_candidates = []
+
+    # Elitism: Keep the best individual from the current population
+    if population:
+        best_current_individual = min(population, key=lambda x: x['fitness'])
+        new_generation_candidates.append(best_current_individual)
+    else:
+        # This case should ideally not happen if initial population is correctly created
+        # but as a safeguard, if population is empty, we can't evolve.
+        return [], {'config': {}, 'fitness': float('inf')}
+
+    # Generate new individuals through crossover and mutation
+    # We generate (island_population_size - 1) new individuals to maintain population size
+    # if we are keeping one elite.
+    num_to_generate = island_population_size - len(new_generation_candidates)
+    if num_to_generate < 0:
+        num_to_generate = 0 # Should not happen if island_population_size >= 1
+
+    for _ in range(num_to_generate):
+        # Selection: Simple random selection for parents from the current population
+        # Ensure there are at least two individuals for crossover
+        if len(population) < 2:
+            # If population is too small for crossover, just mutate the best existing one
+            # This case should be prevented by minimum island_population_size, but as a safeguard
+            parent1 = population[0]['config'] if population else {} # Fallback to empty if population is somehow empty
+            child_config = copy.deepcopy(parent1)
+            if debug:
+                print("Warning: Island population too small for crossover. Mutating a copy of the best individual.", file=sys.stderr)
+        else:
+            parent1 = random.choice(population)['config']
+            parent2 = random.choice(population)['config']
+            child_config = crossover(parent1, parent2)
+
+        # Mutation: Mutate one random option in the child
+        mutated_child_config = mutate(child_config, json_options_lookup, forced_options_lookup, repo_path, debug)
+
+        # Apply forced options to the mutated child (ensure they are always respected)
+        for forced_path, forced_value in forced_options_lookup.items():
+            if forced_path in mutated_child_config:
+                mutated_child_config[forced_path]['value'] = forced_value
+
+        # Evaluate fitness of the mutated child
+        child_fitness = run_clang_format_and_count_changes(repo_path, generate_clang_format_config(mutated_child_config), debug=debug)
+        new_generation_candidates.append({'config': mutated_child_config, 'fitness': child_fitness})
+
+    # Selection for next generation: Sort all candidates and take the top `island_population_size`
+    new_population = sorted(new_generation_candidates, key=lambda x: x['fitness'])[:island_population_size]
+
+    # Find the best individual in this new generation
+    best_in_generation = min(new_population, key=lambda x: x['fitness']) if new_population else {'config': {}, 'fitness': float('inf')}
+
+    return new_population, best_in_generation
+
+def _perform_migration(populations, debug=False):
+    """
+    Performs migration between islands.
+    Each island sends its best individual to a randomly chosen other island,
+    replacing a random individual in the target island.
+    """
+    if len(populations) < 2:
+        if debug:
+            print("Skipping migration: Less than 2 islands.", file=sys.stderr)
+        return
+
+    migrants = []
+    # Collect the best individual from each island
+    for i, island_pop in enumerate(populations):
+        if island_pop:
+            best_individual = min(island_pop, key=lambda x: x['fitness'])
+            migrants.append({'source_island_idx': i, 'individual': best_individual})
+        else:
+            if debug:
+                print(f"Warning: Island {i} is empty, cannot select migrant.", file=sys.stderr)
+
+    if debug:
+        print(f"Performing migration with {len(migrants)} migrants.", file=sys.stderr)
+
+    # Distribute migrants
+    for migrant_info in migrants:
+        source_idx = migrant_info['source_island_idx']
+        migrant = migrant_info['individual']
+
+        # Choose a random target island different from the source
+        target_island_idx = source_idx
+        # Ensure there's at least one other island to migrate to
+        if len(populations) > 1:
+            while target_island_idx == source_idx:
+                target_island_idx = random.randrange(len(populations))
+        else:
+            # If only one island, no migration possible
+            continue
+
+        target_population = populations[target_island_idx]
+
+        if not target_population:
+            # If target island is empty, just add the migrant
+            target_population.append(migrant)
+            if debug:
+                print(f"  Migrant from island {source_idx} added to empty island {target_island_idx}.", file=sys.stderr)
+        else:
+            # Replace a random individual in the target island with the migrant
+            # Ensure target_population has at least one element before random.choice
+            if len(target_population) > 0:
+                individual_to_replace = random.choice(target_population)
+                target_population.remove(individual_to_replace)
+                target_population.append(migrant)
+                if debug:
+                    print(f"  Migrant from island {source_idx} replaced an individual in island {target_island_idx}.", file=sys.stderr)
+            else:
+                # This case should be rare if populations are maintained, but as a safeguard
+                target_population.append(migrant)
+                if debug:
+                    print(f"  Migrant from island {source_idx} added to island {target_island_idx} (was unexpectedly empty).", file=sys.stderr)
+
+
+def genetic_optimize_all_options(base_options_info, repo_path, json_options_lookup, forced_options_lookup, num_iterations, total_population_size, num_islands, debug=False):
+    """
+    Optimizes clang-format configuration using a genetic algorithm with an island model.
 
     Args:
         base_options_info (dict): The initial flat dictionary from clang-format --dump-config.
@@ -163,75 +296,93 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
                                     from the JSON file, used to find possible values.
         forced_options_lookup (dict): A dictionary mapping option names to forced values.
         num_iterations (int): Number of generations for the genetic algorithm.
-        max_individuals (int): Maximum number of individuals in the population.
+        total_population_size (int): The total number of individuals across all islands.
+        num_islands (int): The number of independent populations (islands).
         debug (bool): Enable debug output.
 
     Returns:
         dict: The flat dictionary of the best clang-format configuration found.
     """
-    population = []
-    print(f"\nInitializing population of {max_individuals} individuals...", file=sys.stderr)
+    if num_islands < 1:
+        print("Error: Number of islands must be at least 1. Setting to 1.", file=sys.stderr)
+        num_islands = 1
 
-    # Initialize population with copies of the base config and evaluate their fitness
-    for i in range(max_individuals):
-        individual_config = copy.deepcopy(base_options_info)
-        # Apply forced options to initial individuals
-        for forced_path, forced_value in forced_options_lookup.items():
-            if forced_path in individual_config:
-                individual_config[forced_path]['value'] = forced_value
+    # Determine population size per island
+    # Ensure a minimum of 5 individuals per island for meaningful evolution
+    MIN_INDIVIDUALS_PER_ISLAND = 5
+    island_population_size = max(MIN_INDIVIDUALS_PER_ISLAND, total_population_size // num_islands)
 
-        fitness = run_clang_format_and_count_changes(repo_path, generate_clang_format_config(individual_config), debug=debug)
-        population.append({'config': individual_config, 'fitness': fitness})
-        print(f"  Individual {i+1}/{max_individuals} initialized with fitness: {fitness}", file=sys.stderr)
+    # Adjust total_population_size if the minimum per island makes it larger
+    if island_population_size * num_islands > total_population_size:
+        total_population_size = island_population_size * num_islands
+        print(f"Adjusted total population size to {total_population_size} to ensure at least {island_population_size} individuals per island.", file=sys.stderr)
+    elif total_population_size < num_islands * MIN_INDIVIDUALS_PER_ISLAND:
+        print(f"Warning: Total population size ({total_population_size}) is too small for {num_islands} islands "
+              f"with a minimum of {MIN_INDIVIDUALS_PER_ISLAND} individuals per island. "
+              f"Each island will have {island_population_size} individuals.", file=sys.stderr)
 
-    # Find the best individual in the initial population
-    best_overall_individual = min(population, key=lambda x: x['fitness'])
-    print(f"\nInitial best fitness: {best_overall_individual['fitness']}", file=sys.stderr)
+
+    populations = []
+    print(f"\nInitializing {num_islands} islands, each with {island_population_size} individuals (total: {total_population_size})...", file=sys.stderr)
+
+    # Initialize each island's population
+    for i in range(num_islands):
+        island_pop = []
+        for j in range(island_population_size):
+            individual_config = copy.deepcopy(base_options_info)
+            # Apply forced options to initial individuals
+            for forced_path, forced_value in forced_options_lookup.items():
+                if forced_path in individual_config:
+                    individual_config[forced_path]['value'] = forced_value
+
+            fitness = run_clang_format_and_count_changes(repo_path, generate_clang_format_config(individual_config), debug=debug)
+            island_pop.append({'config': individual_config, 'fitness': fitness})
+            print(f"  Island {i+1}, Individual {j+1}/{island_population_size} initialized with fitness: {fitness}", file=sys.stderr)
+        populations.append(island_pop)
+
+    # Find the best individual in the initial overall population
+    all_individuals = [ind for island_pop in populations for ind in island_pop]
+    best_overall_individual = min(all_individuals, key=lambda x: x['fitness'])
+    print(f"\nInitial overall best fitness: {best_overall_individual['fitness']}", file=sys.stderr)
+
+    # Migration interval (e.g., migrate every 10 generations)
+    MIGRATION_INTERVAL = 10
 
     # Evolution Loop
     for iteration in range(num_iterations):
         print(f"\n--- Iteration {iteration + 1}/{num_iterations} ---", file=sys.stderr)
-        new_generation_candidates = []
 
-        # Elitism: Keep the best individual from the previous generation
-        new_generation_candidates.append(best_overall_individual)
+        # Evolve each island independently
+        for i, island_pop in enumerate(populations):
+            print(f"  Evolving Island {i + 1}...", file=sys.stderr)
+            new_island_pop, best_in_island = _evolve_island_generation(
+                island_pop, repo_path, json_options_lookup, forced_options_lookup, island_population_size, debug
+            )
+            populations[i] = new_island_pop # Update the island's population
+            print(f"    Island {i + 1} best fitness: {best_in_island['fitness']}", file=sys.stderr)
 
-        # Generate new individuals through crossover and mutation
-        # We generate (max_individuals - 1) new individuals to maintain population size
-        # if we are keeping one elite.
-        for _ in range(max_individuals - 1):
-            # Selection: Simple random selection for parents
-            parent1 = random.choice(population)['config']
-            parent2 = random.choice(population)['config']
+            # Update overall best individual if this island found a better one
+            if best_in_island['fitness'] < best_overall_individual['fitness']:
+                best_overall_individual = best_in_island
+                print(f"    New overall best fitness found: {best_overall_individual['fitness']}", file=sys.stderr)
 
-            # Crossover
-            child_config = crossover(parent1, parent2)
+        # Perform migration periodically if there's more than one island
+        if num_islands > 1 and (iteration + 1) % MIGRATION_INTERVAL == 0:
+            print(f"\n--- Performing migration at iteration {iteration + 1} ---", file=sys.stderr)
+            _perform_migration(populations, debug)
+            
+            # After migration, re-find the overall best individual from the updated populations
+            all_individuals_after_migration = [ind for island_pop in populations for ind in island_pop]
+            if all_individuals_after_migration:
+                current_overall_best_after_migration = min(all_individuals_after_migration, key=lambda x: x['fitness'])
+                if current_overall_best_after_migration['fitness'] < best_overall_individual['fitness']:
+                    best_overall_individual = current_overall_best_after_migration
+                    print(f"  New overall best fitness found after migration: {best_overall_individual['fitness']}", file=sys.stderr)
+                else:
+                    print(f"  Overall best fitness remains: {best_overall_individual['fitness']} after migration.", file=sys.stderr)
+            else:
+                print("Warning: All populations are empty after migration. This should not happen.", file=sys.stderr)
 
-            # Mutation: Mutate one random option in the child
-            mutated_child_config = mutate(child_config, json_options_lookup, forced_options_lookup, repo_path, debug)
-
-            # Apply forced options to the mutated child (ensure they are always respected)
-            # This is crucial because crossover might pick a non-forced value for a forced option.
-            for forced_path, forced_value in forced_options_lookup.items():
-                if forced_path in mutated_child_config:
-                    mutated_child_config[forced_path]['value'] = forced_value
-
-            # Evaluate fitness of the mutated child
-            child_fitness = run_clang_format_and_count_changes(repo_path, generate_clang_format_config(mutated_child_config), debug=debug)
-            new_generation_candidates.append({'config': mutated_child_config, 'fitness': child_fitness})
-            print(f"  Generated child with fitness: {child_fitness}", file=sys.stderr)
-
-        # Selection for next generation: Sort all candidates (current population + new children)
-        # and take the top `max_individuals` (truncation selection)
-        population = sorted(new_generation_candidates, key=lambda x: x['fitness'])[:max_individuals]
-
-        # Update overall best individual
-        current_best_in_generation = min(population, key=lambda x: x['fitness'])
-        print(f"  Best fitness in current generation: {current_best_in_generation['fitness']}", file=sys.stderr)
-
-        if current_best_in_generation['fitness'] < best_overall_individual['fitness']:
-            best_overall_individual = current_best_in_generation
-            print(f"  New overall best fitness found: {best_overall_individual['fitness']}", file=sys.stderr)
 
     print(f"\nGenetic algorithm finished. Best overall fitness: {best_overall_individual['fitness']}", file=sys.stderr)
     return best_overall_individual['config']

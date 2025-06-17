@@ -76,8 +76,14 @@ def main():
     parser.add_argument(
         "--population-size",
         type=int,
-        default=5,
-        help="Maximum number of individuals in the genetic algorithm population."
+        default=50, # Increased default for better GA performance with islands
+        help="Total number of individuals across all islands in the genetic algorithm population."
+    )
+    parser.add_argument(
+        "--islands",
+        type=int,
+        default=1,
+        help="Number of independent populations (islands) for the genetic algorithm. Set to 1 for a single population."
     )
 
     args = parser.parse_args()
@@ -147,7 +153,8 @@ def main():
         json_options_lookup,
         forced_options_lookup,
         num_iterations=args.iterations,
-        max_individuals=args.population_size,
+        total_population_size=args.population_size, # Pass total population size
+        num_islands=args.islands, # Pass number of islands
         debug=DEBUG
     )
 
