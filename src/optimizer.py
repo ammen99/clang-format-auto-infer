@@ -56,6 +56,7 @@ signal.signal(signal.SIGINT, _signal_handler)
 def optimize_option_with_values(flat_options_info, full_option_path, repo_path, possible_values, debug=False, file_sample_percentage=100.0, random_seed=None):
     """
     Optimizes a single option by testing each value in the provided list.
+    If multiple values yield the same minimum changes, one is randomly selected.
 
     Args:
         flat_options_info (dict): The flat dictionary containing all options.
@@ -74,7 +75,7 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
     print(f"  Testing values: {possible_values}", file=sys.stderr)
 
     min_changes = float('inf')
-    best_value = original_value
+    best_values_candidates = [] # Store all values that achieve min_changes
 
     for value_to_test in possible_values:
         # Check for stop flag before each test
@@ -142,7 +143,9 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
             print(f"    Changes with {value_to_test}: {changes}", file=sys.stderr)
             if changes < min_changes:
                 min_changes = changes
-                best_value = value_to_test
+                best_values_candidates = [value_to_test] # New best found, reset list
+            elif changes == min_changes:
+                best_values_candidates.append(value_to_test) # Another value with same best changes
         else:
             # An error occurred in run_clang_format_and_count_changes (e.g., git diff failed)
             # The error message is already printed by that function.
@@ -151,18 +154,15 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
 
 
     # --- Decide Best Value ---
-    # If min_changes is still infinity, it means all tests failed (returned -1 or float('inf'))
-    # If all tests returned float('inf'), min_changes will be float('inf'), and best_value will be the last tested value.
-    # If some tests returned float('inf') and some returned >= 0, min_changes will be the minimum >= 0.
-    # If all tests returned -1, min_changes will be float('inf').
-    if min_changes == float('inf'):
+    if not best_values_candidates:
         # This happens if all tested values resulted in either a git error (-1) or an invalid clang-format config (float('inf')).
         # In this case, we keep the original value as we couldn't find a better valid one.
         print(f"  All tests failed or resulted in invalid configurations for '{full_option_path}'. Keeping original value: {original_value}", file=sys.stderr)
         # Value is currently the last tested value, restore original
         flat_options_info[full_option_path]['value'] = original_value
     else:
-        # min_changes is a finite number (>= 0), meaning at least one configuration was valid and formatted files.
+        # Randomly select one of the best values
+        best_value = random.choice(best_values_candidates)
         print(f"  Best value for '{full_option_path}': {best_value} (changes: {min_changes})", file=sys.stderr)
         flat_options_info[full_option_path]['value'] = best_value
 
