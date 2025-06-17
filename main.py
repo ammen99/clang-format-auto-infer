@@ -5,6 +5,7 @@ import sys
 import yaml
 import re
 import copy
+import json # Import the json library
 
 # Global debug flag
 DEBUG = False
@@ -293,96 +294,83 @@ def generate_clang_format_config(options_info):
     # Dump the extracted dictionary to YAML
     return yaml.dump(config_dict_values, default_flow_style=False, sort_keys=False)
 
-
-def optimize_boolean_option(parent_dict, option_name, repo_path, root_options_dict):
+def optimize_option_with_values(parent_dict, option_name, repo_path, root_options_dict, possible_values):
     """
-    Optimizes a single boolean option by testing True and False values.
+    Optimizes a single option by testing each value in the provided list.
 
     Args:
         parent_dict (dict): The dictionary containing the option being optimized.
                             This could be the root dict or a nested dict.
-        option_name (str): The name of the boolean option.
+        option_name (str): The name of the option.
         repo_path (str): Path to the git repository.
         root_options_dict (dict): The top-level dictionary containing all options.
                                   Needed to generate the full config for testing.
+        possible_values (list): A list of values to test for this option.
     """
     option_info = parent_dict[option_name]
-    original_value = option_info['value'] # Store original value in case of errors
-
-    # Check if the option is in the forced list
-    # Assumes option_name is globally unique
-    if option_name in FORCED_OPTIONS:
-        forced_value = FORCED_OPTIONS[option_name]
-        print(f"\nSkipping optimization for '{option_name}'. Forcing value to: {forced_value}", file=sys.stderr)
-        parent_dict[option_name]['value'] = forced_value
-        return # Skip optimization for forced options
+    original_value = option_info['value'] # Store original value
 
     print(f"\nOptimizing '{option_name}' (current: {original_value})...", file=sys.stderr)
+    print(f"  Testing values: {possible_values}", file=sys.stderr)
 
-    # --- Test False ---
-    parent_dict[option_name]['value'] = False
-    config_false = generate_clang_format_config(root_options_dict)
-    print(f"  Testing '{option_name}: False'...", file=sys.stderr)
-    changes_false = run_clang_format_and_count_changes(repo_path, config_false)
-    if changes_false != -1:
-        print(f"    Changes with False: {changes_false}", file=sys.stderr)
-    else:
-        print(f"    Error testing False.", file=sys.stderr)
+    min_changes = float('inf')
+    best_value = original_value
+    results = {} # Store results for printing
 
-    # --- Test True ---
-    parent_dict[option_name]['value'] = True
-    config_true = generate_clang_format_config(root_options_dict)
-    print(f"  Testing '{option_name}: True'...", file=sys.stderr)
-    changes_true = run_clang_format_and_count_changes(repo_path, config_true)
-    if changes_true != -1:
-         print(f"    Changes with True: {changes_true}", file=sys.stderr)
-    else:
-         print(f"    Error testing True.", file=sys.stderr)
+    for value_to_test in possible_values:
+        # Ensure the value type matches the expected type from dump-config
+        # Simple type conversion for common types
+        if option_info['type'] == 'bool':
+            # Convert string 'true'/'false' to boolean
+            if isinstance(value_to_test, str):
+                if value_to_test.lower() == 'true':
+                    value_to_test = True
+                elif value_to_test.lower() == 'false':
+                    value_to_test = False
+                # else: keep as string, might be an enum value represented as string
+
+        elif option_info['type'] == 'int':
+             try:
+                 value_to_test = int(value_to_test)
+             except (ValueError, TypeError):
+                 print(f"Warning: Could not convert value '{value_to_test}' to int for option '{option_name}'. Skipping.", file=sys.stderr)
+                 results[value_to_test] = -1 # Mark as failed
+                 continue # Skip this value
+
+        # Add other type conversions if necessary (e.g., float, list, etc.)
+        # For now, assume other types (like strings for enums) can be used directly
+
+
+        parent_dict[option_name]['value'] = value_to_test
+        config_string = generate_clang_format_config(root_options_dict)
+
+        changes = run_clang_format_and_count_changes(repo_path, config_string)
+        results[value_to_test] = changes
+
+        if changes != -1: # Only consider successful runs
+            print(f"    Changes with {value_to_test}: {changes}", file=sys.stderr)
+            if changes < min_changes:
+                min_changes = changes
+                best_value = value_to_test
+        else:
+            print(f"    Error testing {value_to_test}.", file=sys.stderr)
+
 
     # --- Decide Best Value ---
-    best_value = original_value # Default to original value
-    best_changes = float('inf')
-
-    # Case 1: Both tests failed
-    if changes_false == -1 and changes_true == -1:
-        print(f"  Both tests failed for '{option_name}'. Keeping original value: {original_value}", file=sys.stderr)
-        # Value is currently True from the last test, restore original
+    # If min_changes is still infinity, it means all tests failed
+    if min_changes == float('inf'):
+        print(f"  All tests failed for '{option_name}'. Keeping original value: {original_value}", file=sys.stderr)
+        # Value is currently the last tested value, restore original
         parent_dict[option_name]['value'] = original_value
-        return # Optimization failed for this option
-
-    # Case 2: Only False test succeeded
-    if changes_false != -1 and changes_true == -1:
-        best_value = False
-        best_changes = changes_false
-        print(f"  True test failed for '{option_name}'. Choosing False (changes: {best_changes})", file=sys.stderr)
-    # Case 3: Only True test succeeded
-    elif changes_false == -1 and changes_true != -1:
-        best_value = True
-        best_changes = changes_true
-        print(f"  False test failed for '{option_name}'. Choosing True (changes: {best_changes})", file=sys.stderr)
-    # Case 4: Both tests succeeded
-    elif changes_false != -1 and changes_true != -1:
-        if changes_false < changes_true:
-            best_value = False
-            best_changes = changes_false
-            print(f"  False resulted in fewer changes for '{option_name}'. Choosing False (changes: {changes_false})", file=sys.stderr)
-        elif changes_true < changes_false:
-            best_value = True
-            best_changes = changes_true
-            print(f"  True resulted in fewer changes for '{option_name}'. Choosing True (changes: {changes_true})", file=sys.stderr)
-        else: # changes_false == changes_true
-            best_value = original_value # Keep original on a tie
-            best_changes = changes_false # or changes_true
-            print(f"  Changes are equal for '{option_name}' ({best_changes}). Keeping original value: {original_value}", file=sys.stderr)
-
-    # Update the working dictionary with the chosen value (unless both failed, handled above)
-    if changes_false != -1 or changes_true != -1:
-         parent_dict[option_name]['value'] = best_value
+    else:
+        print(f"  Best value for '{option_name}': {best_value} (changes: {min_changes})", file=sys.stderr)
+        parent_dict[option_name]['value'] = best_value
 
 
-def optimize_options_recursively(current_options_dict, repo_path, root_options_dict):
+def optimize_options_recursively(current_options_dict, repo_path, root_options_dict, json_options_lookup):
     """
-    Recursively iterates through options in a dictionary structure and optimizes boolean ones.
+    Recursively iterates through options in a dictionary structure and optimizes them
+    using possible values from the JSON lookup if available.
 
     Args:
         current_options_dict (dict): The dictionary currently being processed
@@ -391,6 +379,8 @@ def optimize_options_recursively(current_options_dict, repo_path, root_options_d
         repo_path (str): Path to the git repository.
         root_options_dict (dict): The top-level dictionary containing all options.
                                   Needed to generate the full config for testing.
+        json_options_lookup (dict): A dictionary mapping option names to their info
+                                    from the JSON file, used to find possible values.
     """
     # Iterate over a list of keys to avoid issues modifying dict during iteration
     for option_name in list(current_options_dict.keys()):
@@ -400,16 +390,27 @@ def optimize_options_recursively(current_options_dict, repo_path, root_options_d
             # Recurse into nested dictionary
             if DEBUG:
                  print(f"Entering nested options for '{option_name}'...", file=sys.stderr)
-            optimize_options_recursively(option_info['value'], repo_path, root_options_dict)
+            optimize_options_recursively(option_info['value'], repo_path, root_options_dict, json_options_lookup)
             if DEBUG:
                  print(f"Exiting nested options for '{option_name}'.", file=sys.stderr)
-        elif option_info['type'] == 'bool':
-            # Optimize boolean option
-            optimize_boolean_option(current_options_dict, option_name, repo_path, root_options_dict)
         else:
-            # Skip non-boolean, non-dict options
-            if DEBUG:
-                 print(f"Skipping non-boolean, non-dict option: '{option_name}' (type: {option_info['type']})", file=sys.stderr)
+            # Process non-dict options
+            # Check if the option is in the forced list
+            # Assumes option_name is globally unique
+            if option_name in FORCED_OPTIONS:
+                forced_value = FORCED_OPTIONS[option_name]
+                print(f"\nSkipping optimization for '{option_name}'. Forcing value to: {forced_value}", file=sys.stderr)
+                current_options_dict[option_name]['value'] = forced_value
+                continue # Skip optimization for forced options
+
+            # Check if we have possible values for this option from the JSON
+            if option_name in json_options_lookup and json_options_lookup[option_name]['possible_values']:
+                possible_values = json_options_lookup[option_name]['possible_values']
+                optimize_option_with_values(current_options_dict, option_name, repo_path, root_options_dict, possible_values)
+            else:
+                # If no possible values from JSON, keep the default value
+                if DEBUG:
+                     print(f"Skipping optimization for '{option_name}' (type: {option_info['type']}). No possible values provided in JSON.", file=sys.stderr)
 
 
 def main():
@@ -427,6 +428,11 @@ def main():
         "--output",
         dest="output_file",
         help="Path to the file where the optimized configuration will be written (optional). If not provided, output is written to stdout."
+    )
+    parser.add_argument(
+        "--option-values-json",
+        dest="option_values_json_file",
+        help="Path to a JSON file containing clang-format options and their possible values (generated by get_option_values.py)."
     )
     parser.add_argument(
         "-d", "--debug",
@@ -466,9 +472,30 @@ def main():
         print("\nFailed to parse clang-format options.", file=sys.stderr)
         exit(1)
 
-    # Note: The count from parse_clang_format_options is only top-level.
-    # A more accurate count would require traversing the structure.
     print(f"\nSuccessfully parsed clang-format options structure.")
+
+    # Load option values from JSON if provided
+    json_options_lookup = {}
+    if args.option_values_json_file:
+        if not os.path.exists(args.option_values_json_file):
+            print(f"Error: Option values JSON file not found at '{args.option_values_json_file}'.", file=sys.stderr)
+            exit(1)
+        try:
+            with open(args.option_values_json_file, 'r') as f:
+                json_list = json.load(f)
+                if not isinstance(json_list, list):
+                    print(f"Error: JSON file '{args.option_values_json_file}' does not contain a list.", file=sys.stderr)
+                    exit(1)
+                # Create a lookup dictionary by option name
+                json_options_lookup = {item['name']: item for item in json_list if 'name' in item}
+            print(f"Successfully loaded option values from '{args.option_values_json_file}'.")
+        except json.JSONDecodeError as e:
+            print(f"Error decoding JSON from '{args.option_values_json_file}': {e}", file=sys.stderr)
+            exit(1)
+        except Exception as e:
+            print(f"Error reading option values JSON file '{args.option_values_json_file}': {e}", file=sys.stderr)
+            exit(1)
+
 
     # Create a working copy of options to optimize
     # This copy will be modified recursively by the optimization functions
@@ -477,7 +504,7 @@ def main():
     print("\nStarting optimization...")
 
     # Start the recursive optimization process from the root
-    optimize_options_recursively(optimized_options_info, repo_path_abs, optimized_options_info)
+    optimize_options_recursively(optimized_options_info, repo_path_abs, optimized_options_info, json_options_lookup)
 
     print("\nOptimization complete.")
 
