@@ -5,6 +5,7 @@ QualifierAlignment: Leave
 AccessModifierOffset: -2
 ColumnLimit: 120
 MaxEmptyLinesToKeep: 1
+DerivePointerAlignment: false
 
 IndentWidth: 4
 ContinuationIndentWidth: 4

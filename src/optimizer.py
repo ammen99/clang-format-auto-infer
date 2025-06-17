@@ -478,7 +478,7 @@ def genetic_optimize_all_options(base_options_info, repo_paths, json_options_loo
 
 
     # Migration interval (e.g., migrate every 10 generations)
-    MIGRATION_INTERVAL = 25
+    MIGRATION_INTERVAL = 15
 
     # Create the multiprocessing pool
     # The number of processes in the pool is limited by the number of available repo copies
