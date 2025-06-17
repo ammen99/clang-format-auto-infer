@@ -8,6 +8,7 @@ import os # Added for file operations
 # Import formatter and config generator
 from .repo_formatter import run_clang_format_and_count_changes
 from .clang_format_parser import generate_clang_format_config
+from .data_classes import OptimizationConfig, GeneticAlgorithmLookups, IslandEvolutionArgs # New import for data classes
 
 # Initialize plt to None to prevent UnboundLocalError warnings from static analyzers
 plt = None
@@ -76,7 +77,7 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
     for value_to_test in possible_values:
         # Check for stop flag before each test
         global _worker_stop_event # Access the global worker event
-        if _worker_stop_event and _worker_stop_event.is_set(): # Check shared event
+        if _worker_stop_event and _worker_stop_event.is_set(): # type: ignore
             print(f"  Optimization interrupted for '{full_option_path}'. Keeping original value.", file=sys.stderr)
             flat_options_info[full_option_path]['value'] = original_value # Restore original if interrupted
             return # Exit early from this function
@@ -173,16 +174,15 @@ def crossover(parent1_config, parent2_config):
             child_config[option_path] = copy.deepcopy(parent2_config[option_path])
     return child_config
 
-def mutate(individual_config, json_options_lookup, forced_options_lookup, repo_path, debug=False):
+def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, debug: bool):
     """
     Mutates an individual by selecting one random mutable option and optimizing its value
     by testing all possible values using optimize_option_with_values.
 
     Args:
         individual_config (dict): The configuration of the individual to mutate.
-        json_options_lookup (dict): Lookup for possible option values.
-        forced_options_lookup (dict): Lookup for forced option values.
         repo_path (str): Path to the git repository (one of the temporary copies).
+        lookups (GeneticAlgorithmLookups): Lookup for possible option values and forced options.
         debug (bool): Enable debug output.
     """
     # Make a deep copy to avoid modifying the original individual directly before evaluation
@@ -191,10 +191,10 @@ def mutate(individual_config, json_options_lookup, forced_options_lookup, repo_p
     # Find mutable options (not forced, has possible values or is boolean)
     mutable_options = []
     for full_option_path, option_info in mutated_config.items():
-        if full_option_path in forced_options_lookup:
+        if full_option_path in lookups.forced_options_lookup:
             continue # Skip forced options, they are not mutable by the GA
 
-        if (full_option_path in json_options_lookup and json_options_lookup[full_option_path]['possible_values']) or \
+        if (full_option_path in lookups.json_options_lookup and lookups.json_options_lookup[full_option_path]['possible_values']) or \
            (option_info['type'] == 'bool'):
             mutable_options.append(full_option_path)
 
@@ -208,8 +208,8 @@ def mutate(individual_config, json_options_lookup, forced_options_lookup, repo_p
     option_info = mutated_config[option_to_mutate_path]
 
     possible_values = []
-    if option_to_mutate_path in json_options_lookup and json_options_lookup[option_to_mutate_path]['possible_values']:
-        possible_values = json_options_lookup[option_to_mutate_path]['possible_values']
+    if option_to_mutate_path in lookups.json_options_lookup and lookups.json_options_lookup[option_to_mutate_path]['possible_values']:
+        possible_values = lookups.json_options_lookup[option_to_mutate_path]['possible_values']
     elif option_info['type'] == 'bool':
         possible_values = [True, False]
 
@@ -228,25 +228,23 @@ def mutate(individual_config, json_options_lookup, forced_options_lookup, repo_p
 
     return mutated_config
 
-def _evolve_island_generation_task(island_args):
+def _evolve_island_generation_task(island_evolution_args: IslandEvolutionArgs):
     """
     Helper function for multiprocessing pool to evolve a single island for one generation.
 
     Args:
-        island_args (tuple): A tuple containing:
-            - population (list): The current list of individuals for this island.
-                                 Each individual is {'config': dict, 'fitness': float}.
-            - repo_path (str): Path to the git repository (one of the temporary copies) for this worker.
-            - json_options_lookup (dict): Lookup for possible option values.
-            - forced_options_lookup (dict): Lookup for forced option values.
-            - island_population_size (int): The target size of this island's population.
-            - debug (bool): Enable debug output.
+        island_evolution_args (IslandEvolutionArgs): Dataclass containing all arguments
+                                                     for this island's evolution task.
 
     Returns:
         tuple: (new_population, best_individual_in_generation)
     """
-    # Unpack arguments (mp_stop_event is no longer passed here)
-    population, repo_path, json_options_lookup, forced_options_lookup, island_population_size, debug = island_args
+    # Unpack arguments from the dataclass
+    population = island_evolution_args.population
+    repo_path = island_evolution_args.repo_path
+    lookups = island_evolution_args.lookups
+    island_population_size = island_evolution_args.island_population_size
+    debug = island_evolution_args.debug
 
     new_generation_candidates = []
 
@@ -265,7 +263,7 @@ def _evolve_island_generation_task(island_args):
 
     for _ in range(num_to_generate):
         global _worker_stop_event # Access the global worker event
-        if _worker_stop_event.is_set(): # type: ignore
+        if _worker_stop_event and _worker_stop_event.is_set(): # type: ignore
             print("  Evolution interrupted for current island.", file=sys.stderr)
             break # Break from this inner loop
 
@@ -282,10 +280,10 @@ def _evolve_island_generation_task(island_args):
 
         # Mutation: Mutate one random option in the child
         # Pass the specific repo_path for this worker
-        mutated_child_config = mutate(child_config, json_options_lookup, forced_options_lookup, repo_path, debug)
+        mutated_child_config = mutate(child_config, repo_path, lookups, debug)
 
         # Apply forced options to the mutated child (ensure they are always respected)
-        for forced_path, forced_value in forced_options_lookup.items():
+        for forced_path, forced_value in lookups.forced_options_lookup.items():
             if forced_path in mutated_child_config:
                 mutated_child_config[forced_path]['value'] = forced_value
 
@@ -364,26 +362,29 @@ def _perform_migration(populations, debug=False):
                     print(f"  Migrant from island {source_idx} added to island {target_island_idx} (was unexpectedly empty).", file=sys.stderr)
 
 
-def genetic_optimize_all_options(base_options_info, repo_paths, json_options_lookup, forced_options_lookup, num_iterations, total_population_size, num_islands, debug=False, plot_fitness=False):
+def genetic_optimize_all_options(base_options_info, repo_paths: List[str], lookups: GeneticAlgorithmLookups, ga_config: OptimizationConfig):
     """
     Optimizes clang-format configuration using a genetic algorithm with an island model.
 
     Args:
         base_options_info (dict): The initial flat dictionary from clang-format --dump-config.
         repo_paths (list): A list of paths to the temporary git repositories for parallel processing.
-        json_options_lookup (dict): A dictionary mapping option names to their info
-                                    from the JSON file, used to find possible values.
-        forced_options_lookup (dict): A dictionary mapping option names to forced values.
-        num_iterations (int): Number of generations for the genetic algorithm.
-        total_population_size (int): The total number of individuals across all islands.
-        num_islands (int): The number of independent populations (islands).
-        debug (bool): Enable debug output.
-        plot_fitness (bool): If True, visualize the best fitness over time for each island.
+        lookups (GeneticAlgorithmLookups): A dataclass containing lookup dictionaries for
+                                           option values and forced options.
+        ga_config (OptimizationConfig): A dataclass containing configuration parameters
+                                        for the genetic algorithm.
 
     Returns:
         dict: The flat dictionary of the best clang-format configuration found.
     """
     global _stop_optimization_flag, _mp_stop_event # Declare global usage
+
+    # Unpack from ga_config
+    num_iterations = ga_config.num_iterations
+    total_population_size = ga_config.total_population_size
+    num_islands = ga_config.num_islands
+    debug = ga_config.debug
+    plot_fitness = ga_config.plot_fitness
 
     _stop_optimization_flag = False # Reset local flag for a new run
     _mp_stop_event = multiprocessing.Event() # Initialize the shared event here
@@ -412,7 +413,7 @@ def genetic_optimize_all_options(base_options_info, repo_paths, json_options_loo
 
     # Create the base individual configuration and calculate its fitness once
     base_individual_config = copy.deepcopy(base_options_info)
-    for forced_path, forced_value in forced_options_lookup.items():
+    for forced_path, forced_value in lookups.forced_options_lookup.items():
         if forced_path in base_individual_config:
             base_individual_config[forced_path]['value'] = forced_value
 
@@ -499,13 +500,12 @@ def genetic_optimize_all_options(base_options_info, repo_paths, json_options_loo
             for i, island_pop in enumerate(populations):
                 # Cycle through repo_paths to assign one to each island's task
                 repo_path_for_island = repo_paths[i % num_processes]
-                tasks_args.append((
-                    island_pop,
-                    repo_path_for_island,
-                    json_options_lookup,
-                    forced_options_lookup,
-                    island_population_size,
-                    debug,
+                tasks_args.append(IslandEvolutionArgs(
+                    population=island_pop,
+                    island_population_size=island_population_size,
+                    repo_path=repo_path_for_island,
+                    lookups=lookups,
+                    debug=debug,
                 ))
 
             # Run island evolutions in parallel

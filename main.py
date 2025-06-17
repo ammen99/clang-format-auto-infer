@@ -9,6 +9,7 @@ import yaml # New import for loading YAML config files
 from src.clang_format_parser import get_clang_format_options, parse_clang_format_options, generate_clang_format_config
 from src.config_loader import load_json_option_values, load_forced_options
 from src.optimizer import genetic_optimize_all_options # Changed import to the new GA function
+from src.data_classes import OptimizationConfig, GeneticAlgorithmLookups # New import for data classes
 
 # Global debug flag (will be set from args)
 DEBUG = False
@@ -168,11 +169,17 @@ def main():
     # Load and flatten forced options
     forced_options_lookup = load_forced_options(args.forced_options_yaml_file)
 
+    # Create GeneticAlgorithmLookups object
+    ga_lookups = GeneticAlgorithmLookups(
+        json_options_lookup=json_options_lookup,
+        forced_options_lookup=forced_options_lookup
+    )
+
     # Identify options missing from JSON or without possible values (excluding booleans)
     # and not present in forced options
     missing_options = []
     # Pass the flat options_info directly
-    find_options_without_json_values(options_info, json_options_lookup, forced_options_lookup, missing_options)
+    find_options_without_json_values(options_info, ga_lookups.json_options_lookup, ga_lookups.forced_options_lookup, missing_options)
 
     if missing_options:
         print("\nThe following options were found in the base config but were not present in the provided JSON file or had no possible values listed (and are not booleans or forced options):", file=sys.stderr)
@@ -205,17 +212,21 @@ def main():
 
         print("\nStarting genetic algorithm optimization...", file=sys.stderr)
 
+        # Create OptimizationConfig object
+        opt_config = OptimizationConfig(
+            num_iterations=args.iterations,
+            total_population_size=args.population_size,
+            num_islands=args.islands,
+            debug=DEBUG,
+            plot_fitness=args.plot_fitness
+        )
+
         # Start the genetic algorithm optimization process
         optimized_options_info = genetic_optimize_all_options(
             options_info, # Base configuration for population initialization
             temp_repo_paths, # Pass the list of temporary repo paths
-            json_options_lookup,
-            forced_options_lookup,
-            num_iterations=args.iterations,
-            total_population_size=args.population_size, # Pass total population size
-            num_islands=args.islands, # Pass number of islands
-            debug=DEBUG,
-            plot_fitness=args.plot_fitness # Pass the new plot_fitness flag
+            ga_lookups, # Pass the lookups object
+            opt_config # Pass the optimization config object
         )
 
         print("\nOptimization complete.", file=sys.stderr)
