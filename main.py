@@ -11,7 +11,7 @@ from src.optimizer import optimize_options_recursively
 # Global debug flag (will be set from args)
 DEBUG = False
 
-def find_options_without_json_values(current_options_dict, json_options_lookup, missing_list):
+def find_options_without_json_values(current_options_dict, json_options_lookup, missing_list, current_path=""):
     """
     Recursively finds options in the dump-config structure that are not in the
     JSON lookup or have no possible values listed (excluding booleans which are auto-tested).
@@ -20,22 +20,26 @@ def find_options_without_json_values(current_options_dict, json_options_lookup, 
         current_options_dict (dict): The dictionary currently being processed.
         json_options_lookup (dict): The flat dictionary from the JSON file.
         missing_list (list): The list to append missing option names to.
+        current_path (str): The dot-separated path to the current dictionary (e.g., "Parent.SubOption").
     """
     if not isinstance(current_options_dict, dict):
         return # Stop recursion if not a dictionary
 
     for option_name, option_info in current_options_dict.items():
+        # Construct the full path for the current option
+        full_option_path = f"{current_path}.{option_name}" if current_path else option_name
+
         if option_info['type'] == 'dict':
-            # Recurse into nested dictionary
-            find_options_without_json_values(option_info['value'], json_options_lookup, missing_list)
+            # Recurse into nested dictionary, passing the updated full path
+            find_options_without_json_values(option_info['value'], json_options_lookup, missing_list, full_option_path)
         else:
             # Check if the option is in the JSON lookup and has possible values
             # OR if it's a boolean (which is handled automatically)
             if option_name not in json_options_lookup or not json_options_lookup[option_name]['possible_values']:
                 # If not in JSON or no values in JSON, check if it's a boolean
                 if option_info['type'] != 'bool':
-                    # If it's not a boolean and not in JSON/no values, add to missing list
-                    missing_list.append(option_name)
+                    # If it's not a boolean and not in JSON/no values, add its full path to missing list
+                    missing_list.append(full_option_path)
                 # If it *is* a boolean and not in JSON/no values, it will be auto-tested, so don't add to missing list
 
 
@@ -112,12 +116,13 @@ def main():
 
     # Identify options missing from JSON or without possible values (excluding booleans)
     missing_options = []
-    find_options_without_json_values(options_info, json_options_lookup, missing_options)
+    # Pass an empty string as the initial current_path for the root level
+    find_options_without_json_values(options_info, json_options_lookup, missing_options, "")
 
     if missing_options:
         print("\nThe following options were found in clang-format --dump-config but were not present in the provided JSON file or had no possible values listed (and are not booleans):", file=sys.stderr)
-        for opt in missing_options:
-            print(f"- {opt}", file=sys.stderr)
+        for opt_path in missing_options: # opt_path now contains the full path
+            print(f"- {opt_path}", file=sys.stderr)
         print("These options will retain their default values from --dump-config unless specified in the forced options YAML file.", file=sys.stderr)
     elif args.option_values_json_file:
          print("\nAll non-boolean options found in clang-format --dump-config were present in the provided JSON file with possible values.", file=sys.stderr)
