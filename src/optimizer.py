@@ -25,6 +25,7 @@ def _signal_handler(sig, frame):
     Sets a global flag to stop the optimization loop gracefully.
     """
     global _stop_optimization_flag
+    del sig, frame
     print("\nCtrl-C detected. Stopping optimization gracefully...", file=sys.stderr)
     _stop_optimization_flag = True
 
@@ -456,6 +457,7 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
         if plot_fitness and not _stop_optimization_flag: # Only update if not interrupted
             assert ax is not None
             assert fig is not None
+            assert plt is not None
             for i, history in enumerate(fitness_history_per_island):
                 lines[i].set_data(range(len(history)), history)
             ax.relim() # Recalculate limits
