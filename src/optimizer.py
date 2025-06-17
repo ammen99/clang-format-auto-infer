@@ -1,11 +1,35 @@
 import sys
 import copy
 import random
+import signal # New import
 
 # Import formatter and config generator
 from .repo_formatter import run_clang_format_and_count_changes
 from .clang_format_parser import generate_clang_format_config
-import matplotlib.pyplot as plt
+
+# Try to import matplotlib, provide a fallback if not available
+try:
+    import matplotlib.pyplot as plt
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    print("Warning: matplotlib not found. Fitness plotting will be disabled. Install with 'pip install matplotlib' to enable.", file=sys.stderr)
+    MATPLOTLIB_AVAILABLE = False
+
+# Global flag to signal early termination
+_stop_optimization_flag = False
+
+def _signal_handler(sig, frame):
+    """
+    Signal handler for SIGINT (Ctrl-C).
+    Sets a global flag to stop the optimization loop gracefully.
+    """
+    global _stop_optimization_flag
+    print("\nCtrl-C detected. Stopping optimization gracefully...", file=sys.stderr)
+    _stop_optimization_flag = True
+
+# Register the signal handler when the module is loaded
+signal.signal(signal.SIGINT, _signal_handler)
+
 
 def optimize_option_with_values(flat_options_info, full_option_path, repo_path, possible_values, debug=False):
     """
@@ -29,6 +53,13 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
     best_value = original_value
 
     for value_to_test in possible_values:
+        # Check for stop flag before each test
+        global _stop_optimization_flag
+        if _stop_optimization_flag:
+            print(f"  Optimization interrupted for '{full_option_path}'. Keeping original value.", file=sys.stderr)
+            flat_options_info[full_option_path]['value'] = original_value # Restore original if interrupted
+            return # Exit early from this function
+
         # Ensure the value type matches the expected type from dump-config
         # Simple type conversion for common types
         if option_info['type'] == 'bool':
@@ -190,6 +221,12 @@ def _evolve_island_generation(population, repo_path, json_options_lookup, forced
         num_to_generate = 0 # Should not happen if island_population_size >= 1
 
     for _ in range(num_to_generate):
+        # Check for stop flag before generating new individual
+        global _stop_optimization_flag
+        if _stop_optimization_flag:
+            print("  Evolution interrupted for current island.", file=sys.stderr)
+            break # Break from this inner loop
+
         # Selection: Simple random selection for parents from the current population
         # Ensure there are at least two individuals for crossover
         if len(population) < 2:
@@ -305,6 +342,9 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
     Returns:
         dict: The flat dictionary of the best clang-format configuration found.
     """
+    global _stop_optimization_flag
+    _stop_optimization_flag = False # Reset flag for a new run
+
     if num_islands < 1:
         print("Error: Number of islands must be at least 1. Setting to 1.", file=sys.stderr)
         num_islands = 1
@@ -331,6 +371,9 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
     for i in range(num_islands):
         island_pop = []
         for j in range(island_population_size):
+            if _stop_optimization_flag: # Check flag during initialization too
+                print("Initialization interrupted.", file=sys.stderr)
+                break
             individual_config = copy.deepcopy(base_options_info)
             # Apply forced options to initial individuals
             for forced_path, forced_value in forced_options_lookup.items():
@@ -341,18 +384,19 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
             island_pop.append({'config': individual_config, 'fitness': fitness})
             print(f"  Island {i+1}, Individual {j+1}/{island_population_size} initialized with fitness: {fitness}", file=sys.stderr)
         populations.append(island_pop)
+        if _stop_optimization_flag:
+            break # Break outer loop if initialization was interrupted
 
     # Find the best individual in the initial overall population
     all_individuals = [ind for island_pop in populations for ind in island_pop]
-    best_overall_individual = min(all_individuals, key=lambda x: x['fitness'])
+    best_overall_individual = min(all_individuals, key=lambda x: x['fitness']) if all_individuals else {'config': {}, 'fitness': float('inf')}
     print(f"\nInitial overall best fitness: {best_overall_individual['fitness']}", file=sys.stderr)
 
     # Data structure to store best fitness for each island over time
     fitness_history_per_island = [[] for _ in range(num_islands)]
 
     # Setup plot if requested and matplotlib is available
-    if plot_fitness:
-        assert plt is not None
+    if plot_fitness and MATPLOTLIB_AVAILABLE:
         plt.ion() # Turn on interactive mode
         fig, ax = plt.subplots(figsize=(10, 6))
         ax.set_title("Best Fitness Over Generations for Each Island")
@@ -365,12 +409,13 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
         fig.canvas.draw()
         fig.canvas.flush_events()
         plt.pause(0.01) # Give time for plot to render
-    else:
+    elif plot_fitness and not MATPLOTLIB_AVAILABLE:
+        print("Plotting requested but matplotlib is not available. Skipping plot.", file=sys.stderr)
+        plot_fitness = False # Disable plotting for the rest of the function
+    else: # If plot_fitness is False from the start
         lines = []
         ax = None
         fig = None
-        print("Plotting requested but matplotlib is not available. Skipping plot.", file=sys.stderr)
-        plot_fitness = False # Disable plotting for the rest of the function
 
 
     # Migration interval (e.g., migrate every 10 generations)
@@ -378,10 +423,17 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
 
     # Evolution Loop
     for iteration in range(num_iterations):
+        if _stop_optimization_flag:
+            print("\nOptimization loop interrupted by user.", file=sys.stderr)
+            break # Exit the main optimization loop
+
         print(f"\n--- Iteration {iteration + 1}/{num_iterations} ---", file=sys.stderr)
 
         # Evolve each island independently
         for i, island_pop in enumerate(populations):
+            if _stop_optimization_flag: # Check flag before evolving next island
+                print(f"  Skipping remaining islands due to interruption.", file=sys.stderr)
+                break
             print(f"  Evolving Island {i + 1}...", file=sys.stderr)
             new_island_pop, best_in_island_for_this_gen = _evolve_island_generation(
                 island_pop, repo_path, json_options_lookup, forced_options_lookup, island_population_size, debug
@@ -398,9 +450,10 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
                 print(f"    New overall best fitness found: {best_overall_individual['fitness']}", file=sys.stderr)
 
         # Update plot after all islands have evolved in this iteration
-        if plot_fitness:
-            assert ax
-            assert fig
+        if plot_fitness and not _stop_optimization_flag: # Only update if not interrupted
+            # These asserts are for static analysis, as MATPLOTLIB_AVAILABLE check ensures they are not None
+            assert ax is not None
+            assert fig is not None
             for i, history in enumerate(fitness_history_per_island):
                 lines[i].set_data(range(len(history)), history)
             ax.relim() # Recalculate limits
@@ -410,7 +463,7 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
             plt.pause(0.01) # Short pause to allow plot to update
 
         # Perform migration periodically if there's more than one island
-        if num_islands > 1 and (iteration + 1) % MIGRATION_INTERVAL == 0:
+        if num_islands > 1 and (iteration + 1) % MIGRATION_INTERVAL == 0 and not _stop_optimization_flag:
             print(f"\n--- Performing migration at iteration {iteration + 1} ---", file=sys.stderr)
             _perform_migration(populations, debug)
 
