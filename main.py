@@ -362,6 +362,10 @@ def optimize_option_with_values(parent_dict, option_name, repo_path, root_option
                 elif value_to_test.lower() == 'false':
                     value_to_test = False
                 # else: keep as string, might be an enum value represented as string
+            # Ensure boolean values are passed as bool, not strings 'True'/'False'
+            elif isinstance(value_to_test, str) and value_to_test in ['True', 'False']:
+                 value_to_test = value_to_test == 'True'
+
 
         elif option_info['type'] == 'int':
              try:
@@ -456,16 +460,20 @@ def optimize_options_recursively(current_options_dict, repo_path, root_options_d
             if option_name in json_options_lookup and json_options_lookup[option_name]['possible_values']:
                 possible_values = json_options_lookup[option_name]['possible_values']
                 optimize_option_with_values(current_options_dict, option_name, repo_path, root_options_dict, possible_values)
+            elif option_name not in json_options_lookup and option_info['type'] == 'bool':
+                 # If the option is not in the JSON lookup but is a boolean, test True/False
+                 print(f"\n'{option_name}' not found in JSON, but is boolean. Testing True/False.", file=sys.stderr)
+                 optimize_option_with_values(current_options_dict, option_name, repo_path, root_options_dict, [True, False])
             else:
-                # If no possible values from JSON, keep the default value
+                # If no possible values from JSON and not a boolean, keep the default value
                 if DEBUG:
-                     print(f"Skipping optimization for '{option_name}' (type: {option_info['type']}). No possible values provided in JSON for optimization.", file=sys.stderr)
+                     print(f"Skipping optimization for '{option_name}' (type: {option_info['type']}). No possible values provided in JSON for optimization and not a boolean.", file=sys.stderr)
 
 
 def find_options_without_json_values(current_options_dict, json_options_lookup, missing_list):
     """
     Recursively finds options in the dump-config structure that are not in the
-    JSON lookup or have no possible values listed.
+    JSON lookup or have no possible values listed (excluding booleans which are auto-tested).
 
     Args:
         current_options_dict (dict): The dictionary currently being processed.
@@ -481,8 +489,13 @@ def find_options_without_json_values(current_options_dict, json_options_lookup, 
             find_options_without_json_values(option_info['value'], json_options_lookup, missing_list)
         else:
             # Check if the option is in the JSON lookup and has possible values
+            # OR if it's a boolean (which is handled automatically)
             if option_name not in json_options_lookup or not json_options_lookup[option_name]['possible_values']:
-                missing_list.append(option_name)
+                # If not in JSON or no values in JSON, check if it's a boolean
+                if option_info['type'] != 'bool':
+                    # If it's not a boolean and not in JSON/no values, add to missing list
+                    missing_list.append(option_name)
+                # If it *is* a boolean and not in JSON/no values, it will be auto-tested, so don't add to missing list
 
 
 def main():
@@ -594,19 +607,19 @@ def main():
             exit(1)
 
 
-    # Identify options missing from JSON or without possible values
+    # Identify options missing from JSON or without possible values (excluding booleans)
     missing_options = []
     find_options_without_json_values(options_info, json_options_lookup, missing_options)
 
     if missing_options:
-        print("\nThe following options were found in clang-format --dump-config but were not present in the provided JSON file or had no possible values listed:", file=sys.stderr)
+        print("\nThe following options were found in clang-format --dump-config but were not present in the provided JSON file or had no possible values listed (and are not booleans):", file=sys.stderr)
         for opt in missing_options:
             print(f"- {opt}", file=sys.stderr)
         print("These options will retain their default values from --dump-config unless specified in the forced options YAML file.", file=sys.stderr)
     elif args.option_values_json_file:
-         print("\nAll options found in clang-format --dump-config were present in the provided JSON file with possible values.", file=sys.stderr)
+         print("\nAll non-boolean options found in clang-format --dump-config were present in the provided JSON file with possible values.", file=sys.stderr)
     else:
-         print("\nNo JSON file with option values was provided. All options will retain their default values from --dump-config unless specified in the forced options YAML file.", file=sys.stderr)
+         print("\nNo JSON file with option values was provided. All non-boolean options will retain their default values from --dump-config unless specified in the forced options YAML file. Boolean options will be tested automatically.", file=sys.stderr)
 
 
     # Create a working copy of options to optimize
