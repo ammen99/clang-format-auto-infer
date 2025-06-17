@@ -1,4 +1,4 @@
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup # pyright: ignore
 import requests
 import sys
 import re
@@ -35,11 +35,11 @@ def parse_options(html_content):
     current_element = options_section_heading.find_next_sibling()
     first_dl = None
     while current_element:
-        if current_element.name == 'dl':
+        if current_element.name == 'dl': # type: ignore
             first_dl = current_element
             break
         # Stop if we hit the next major section heading (h2) before finding a dl
-        if current_element.name == 'h2':
+        if current_element.name == 'h2': # type: ignore
              break
         current_element = current_element.find_next_sibling()
 
@@ -51,28 +51,28 @@ def parse_options(html_content):
     current_dl = first_dl
     while current_dl:
         # Process the current <dl> tag if it's a definition list
-        if current_dl.name == 'dl':
-            dt_tag = current_dl.find('dt')
-            dd_tag = current_dl.find('dd')
+        if current_dl.name == 'dl': # type: ignore
+            dt_tag = current_dl.find('dt') # type: ignore
+            dd_tag = current_dl.find('dd') # type: ignore
 
             if dt_tag and dd_tag:
                 option_name = None
                 option_type = None
 
                 # Extract option name from strong tag within dt
-                strong_tag = dt_tag.find('strong')
+                strong_tag = dt_tag.find('strong') # type: ignore
                 if strong_tag:
-                    option_name = strong_tag.get_text().strip()
+                    option_name = strong_tag.get_text().strip() # type: ignore
 
                 # Extract option type from code tag within dt, usually right after strong
                 if strong_tag:
-                    next_sibling = strong_tag.next_sibling
+                    next_sibling = strong_tag.next_sibling # type: ignore
                     while next_sibling:
-                        if next_sibling.name == 'code':
+                        if next_sibling.name == 'code': # type: ignore
                             option_type = next_sibling.get_text().strip()
                             break
                         # Stop if we hit another tag that's not just whitespace/text
-                        if hasattr(next_sibling, 'name') and next_sibling.name is not None:
+                        if hasattr(next_sibling, 'name') and next_sibling.name is not None: # type: ignore
                              break
                         next_sibling = next_sibling.next_sibling
 
@@ -81,12 +81,12 @@ def parse_options(html_content):
                     values = []
                     # Look for "Possible values:" list in the dd tag
                     # Find the text node "Possible values:"
-                    possible_values_heading = dd_tag.find(string=re.compile(r'Possible values:'))
+                    possible_values_heading = dd_tag.find(string=re.compile(r'Possible values:')) # type: ignore
                     if possible_values_heading:
                         # The list is usually immediately after the heading
                         values_list = possible_values_heading.find_next('ul')
                         if values_list:
-                            for li in values_list.find_all('li'):
+                            for li in values_list.find_all('li'): # type: ignore
                                 # Extract the configuration value
                                 # It's often in a code tag, sometimes after "(in configuration: "
                                 li_text = li.get_text().strip()
@@ -95,9 +95,9 @@ def parse_options(html_content):
                                     values.append(config_value_match.group(1).strip())
                                 else:
                                     # Fallback: get the text from the first code tag in the li
-                                    code_tag_value = li.find('code')
+                                    code_tag_value = li.find('code') # type: ignore
                                     if code_tag_value:
-                                         values.append(code_tag_value.get_text().strip())
+                                        values.append(code_tag_value.get_text().strip()) # type: ignore
                                     # If no specific format found, maybe skip or add raw text? Let's skip for now.
 
                     options_data[option_name] = {
@@ -112,9 +112,8 @@ def parse_options(html_content):
         # Move to the next sibling element
         current_dl = current_dl.find_next_sibling()
         # Stop if we hit the next major section heading (h2)
-        if current_dl and current_dl.name == 'h2':
+        if current_dl and current_dl.name == 'h2': # type: ignore
              break
-
 
     return options_data
 
