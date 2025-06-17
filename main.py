@@ -1,7 +1,8 @@
 import argparse
 import os
 import sys
-import copy
+import tempfile # New import for temporary directories
+import shutil # New import for copying/removing directories
 
 # Import functions from the new modules (relative imports within the src package)
 from src.clang_format_parser import get_clang_format_options, parse_clang_format_options, generate_clang_format_config
@@ -90,6 +91,12 @@ def main():
         action="store_true",
         help="Visualize the best fitness score over time for each island."
     )
+    parser.add_argument(
+        "-j", "--jobs",
+        type=int,
+        default=1,
+        help="Number of parallel jobs to run for fitness calculation. Each job uses a copy of the repository."
+    )
 
     args = parser.parse_args()
 
@@ -149,39 +156,68 @@ def main():
          print("\nNo JSON file with option values was provided. All non-boolean options will retain their default values from --dump-config unless specified in the forced options YAML file. Boolean options will be tested automatically.", file=sys.stderr)
 
 
-    print("\nStarting genetic algorithm optimization...", file=sys.stderr)
+    num_jobs = args.jobs
+    if num_jobs < 1:
+        print("Error: Number of jobs must be at least 1. Setting to 1.", file=sys.stderr)
+        num_jobs = 1
 
-    # Start the genetic algorithm optimization process
-    optimized_options_info = genetic_optimize_all_options(
-        options_info, # Base configuration for population initialization
-        repo_path_abs,
-        json_options_lookup,
-        forced_options_lookup,
-        num_iterations=args.iterations,
-        total_population_size=args.population_size, # Pass total population size
-        num_islands=args.islands, # Pass number of islands
-        debug=DEBUG,
-        plot_fitness=args.plot_fitness # Pass the new plot_fitness flag
-    )
+    temp_repo_paths = []
+    print(f"\nPreparing {num_jobs} temporary copies of the repository for parallel processing...", file=sys.stderr)
+    try:
+        for _ in range(num_jobs):
+            # Create a unique temporary directory
+            temp_dir = tempfile.mkdtemp(prefix='clang_opt_repo_')
+            print(f"  Copying '{repo_path_abs}' to '{temp_dir}'...", file=sys.stderr)
+            # Copy contents of the original repo to the temporary directory
+            # dirs_exist_ok=True is for Python 3.8+
+            shutil.copytree(repo_path_abs, temp_dir, dirs_exist_ok=True)
+            temp_repo_paths.append(temp_dir)
+        print("Temporary repositories prepared.", file=sys.stderr)
 
-    print("\nOptimization complete.", file=sys.stderr)
+        print("\nStarting genetic algorithm optimization...", file=sys.stderr)
 
-    # Generate the final optimized configuration from the modified flat structure
-    optimized_config = generate_clang_format_config(optimized_options_info)
+        # Start the genetic algorithm optimization process
+        optimized_options_info = genetic_optimize_all_options(
+            options_info, # Base configuration for population initialization
+            temp_repo_paths, # Pass the list of temporary repo paths
+            json_options_lookup,
+            forced_options_lookup,
+            num_iterations=args.iterations,
+            total_population_size=args.population_size, # Pass total population size
+            num_islands=args.islands, # Pass number of islands
+            debug=DEBUG,
+            plot_fitness=args.plot_fitness # Pass the new plot_fitness flag
+        )
 
-    # Output the final configuration
-    if args.output_file:
-        print(f"\nWriting optimized configuration to: {args.output_file}", file=sys.stderr)
-        try:
-            with open(args.output_file, "w") as f:
-                f.write(optimized_config)
-            print("Optimized configuration written successfully.", file=sys.stderr)
-        except IOError as e:
-            print(f"Error writing to file {args.output_file}: {e}", file=sys.stderr)
-            exit(1)
-    else:
-        print("\nOptimized configuration:", file=sys.stderr)
-        print(optimized_config)
+        print("\nOptimization complete.", file=sys.stderr)
+
+        # Generate the final optimized configuration from the modified flat structure
+        optimized_config = generate_clang_format_config(optimized_options_info)
+
+        # Output the final configuration
+        if args.output_file:
+            print(f"\nWriting optimized configuration to: {args.output_file}", file=sys.stderr)
+            try:
+                with open(args.output_file, "w") as f:
+                    f.write(optimized_config)
+                print("Optimized configuration written successfully.", file=sys.stderr)
+            except IOError as e:
+                print(f"Error writing to file {args.output_file}: {e}", file=sys.stderr)
+                exit(1)
+        else:
+            print("\nOptimized configuration:", file=sys.stderr)
+            print(optimized_config)
+
+    finally:
+        print("\nCleaning up temporary repositories...", file=sys.stderr)
+        for temp_dir in temp_repo_paths:
+            try:
+                if os.path.exists(temp_dir):
+                    shutil.rmtree(temp_dir)
+                    print(f"  Removed '{temp_dir}'.", file=sys.stderr)
+            except OSError as e:
+                print(f"Error removing temporary directory '{temp_dir}': {e}", file=sys.stderr)
+        print("Cleanup complete.", file=sys.stderr)
 
 
 if __name__ == "__main__":

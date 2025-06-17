@@ -2,6 +2,7 @@ import sys
 import copy
 import random
 import signal
+import multiprocessing # New import for parallelization
 
 # Import formatter and config generator
 from .repo_formatter import run_clang_format_and_count_changes
@@ -16,18 +17,35 @@ except ImportError:
     print("Warning: matplotlib not found. Fitness plotting will be disabled. Install with 'pip install matplotlib' to enable.", file=sys.stderr)
     MATPLOTLIB_AVAILABLE = False
 
-# Global flag to signal early termination
+# Global flag for main process (for signal handler and main loop checks)
 _stop_optimization_flag = False
+
+# Shared event for multiprocessing workers, declared global here
+_mp_stop_event = None # Will be initialized in genetic_optimize_all_options
+
+# Global event for worker processes, set by pool initializer
+_worker_stop_event = None
+
+def _worker_init(stop_event):
+    """
+    Initializer function for multiprocessing pool workers.
+    Sets a global event in each worker process.
+    """
+    global _worker_stop_event
+    _worker_stop_event = stop_event
 
 def _signal_handler(sig, frame):
     """
     Signal handler for SIGINT (Ctrl-C).
     Sets a global flag to stop the optimization loop gracefully.
+    Also sets a multiprocessing event to signal worker processes.
     """
-    global _stop_optimization_flag
-    del sig, frame
-    print("\nCtrl-C detected. Stopping optimization gracefully...", file=sys.stderr)
+    global _stop_optimization_flag, _mp_stop_event # Declare global usage
     _stop_optimization_flag = True
+    if _mp_stop_event: # Check if it has been initialized
+        _mp_stop_event.set()
+    del sig, frame # Suppress unused argument warning
+    print("\nCtrl-C detected. Stopping optimization gracefully...", file=sys.stderr)
 
 # Register the signal handler when the module is loaded
 signal.signal(signal.SIGINT, _signal_handler)
@@ -41,7 +59,7 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
         flat_options_info (dict): The flat dictionary containing all options.
                                   This dictionary is modified in place.
         full_option_path (str): The dot-separated full name of the option.
-        repo_path (str): Path to the git repository.
+        repo_path (str): Path to the git repository (one of the temporary copies).
         possible_values (list): A list of values to test for this option.
         debug (bool): Enable debug output.
     """
@@ -56,8 +74,8 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
 
     for value_to_test in possible_values:
         # Check for stop flag before each test
-        global _stop_optimization_flag
-        if _stop_optimization_flag:
+        global _worker_stop_event # Access the global worker event
+        if _worker_stop_event and _worker_stop_event.is_set(): # Check shared event
             print(f"  Optimization interrupted for '{full_option_path}'. Keeping original value.", file=sys.stderr)
             flat_options_info[full_option_path]['value'] = original_value # Restore original if interrupted
             return # Exit early from this function
@@ -145,6 +163,13 @@ def mutate(individual_config, json_options_lookup, forced_options_lookup, repo_p
     """
     Mutates an individual by selecting one random mutable option and optimizing its value
     by testing all possible values using optimize_option_with_values.
+
+    Args:
+        individual_config (dict): The configuration of the individual to mutate.
+        json_options_lookup (dict): Lookup for possible option values.
+        forced_options_lookup (dict): Lookup for forced option values.
+        repo_path (str): Path to the git repository (one of the temporary copies).
+        debug (bool): Enable debug output.
     """
     # Make a deep copy to avoid modifying the original individual directly before evaluation
     mutated_config = copy.deepcopy(individual_config)
@@ -184,26 +209,31 @@ def mutate(individual_config, json_options_lookup, forced_options_lookup, repo_p
     print(f"  Mutating '{option_to_mutate_path}' (current: {option_info['value']})...", file=sys.stderr)
     # Use the existing optimize_option_with_values to find the best value for this single option.
     # It modifies `mutated_config` in place.
+    # Pass the specific repo_path for this worker and the shared event
     optimize_option_with_values(mutated_config, option_to_mutate_path, repo_path, possible_values, debug=debug)
 
     return mutated_config
 
-def _evolve_island_generation(population, repo_path, json_options_lookup, forced_options_lookup, island_population_size, debug=False):
+def _evolve_island_generation_task(island_args):
     """
-    Performs one generation of evolution for a single island's population.
+    Helper function for multiprocessing pool to evolve a single island for one generation.
 
     Args:
-        population (list): The current list of individuals for this island.
-                           Each individual is {'config': dict, 'fitness': float}.
-        repo_path (str): Path to the git repository.
-        json_options_lookup (dict): Lookup for possible option values.
-        forced_options_lookup (dict): Lookup for forced option values.
-        island_population_size (int): The target size of this island's population.
-        debug (bool): Enable debug output.
+        island_args (tuple): A tuple containing:
+            - population (list): The current list of individuals for this island.
+                                 Each individual is {'config': dict, 'fitness': float}.
+            - repo_path (str): Path to the git repository (one of the temporary copies) for this worker.
+            - json_options_lookup (dict): Lookup for possible option values.
+            - forced_options_lookup (dict): Lookup for forced option values.
+            - island_population_size (int): The target size of this island's population.
+            - debug (bool): Enable debug output.
 
     Returns:
         tuple: (new_population, best_individual_in_generation)
     """
+    # Unpack arguments (mp_stop_event is no longer passed here)
+    population, repo_path, json_options_lookup, forced_options_lookup, island_population_size, debug = island_args
+
     new_generation_candidates = []
 
     # Elitism: Keep the best individual from the current population
@@ -212,29 +242,22 @@ def _evolve_island_generation(population, repo_path, json_options_lookup, forced
         new_generation_candidates.append(best_current_individual)
     else:
         # This case should ideally not happen if initial population is correctly created
-        # but as a safeguard, if population is empty, we can't evolve.
         return [], {'config': {}, 'fitness': float('inf')}
 
     # Generate new individuals through crossover and mutation
-    # We generate (island_population_size - 1) new individuals to maintain population size
-    # if we are keeping one elite.
     num_to_generate = island_population_size - len(new_generation_candidates)
     if num_to_generate < 0:
-        num_to_generate = 0 # Should not happen if island_population_size >= 1
+        num_to_generate = 0
 
     for _ in range(num_to_generate):
-        # Check for stop flag before generating new individual
-        global _stop_optimization_flag
-        if _stop_optimization_flag:
+        global _worker_stop_event # Access the global worker event
+        if _worker_stop_event.is_set(): # type: ignore
             print("  Evolution interrupted for current island.", file=sys.stderr)
             break # Break from this inner loop
 
         # Selection: Simple random selection for parents from the current population
-        # Ensure there are at least two individuals for crossover
         if len(population) < 2:
-            # If population is too small for crossover, just mutate the best existing one
-            # This case should be prevented by minimum island_population_size, but as a safeguard
-            parent1 = population[0]['config'] if population else {} # Fallback to empty if population is somehow empty
+            parent1 = population[0]['config'] if population else {}
             child_config = copy.deepcopy(parent1)
             if debug:
                 print("Warning: Island population too small for crossover. Mutating a copy of the best individual.", file=sys.stderr)
@@ -244,6 +267,7 @@ def _evolve_island_generation(population, repo_path, json_options_lookup, forced
             child_config = crossover(parent1, parent2)
 
         # Mutation: Mutate one random option in the child
+        # Pass the specific repo_path for this worker
         mutated_child_config = mutate(child_config, json_options_lookup, forced_options_lookup, repo_path, debug)
 
         # Apply forced options to the mutated child (ensure they are always respected)
@@ -252,6 +276,7 @@ def _evolve_island_generation(population, repo_path, json_options_lookup, forced
                 mutated_child_config[forced_path]['value'] = forced_value
 
         # Evaluate fitness of the mutated child
+        # Use the specific repo_path for this worker
         child_fitness = run_clang_format_and_count_changes(repo_path, generate_clang_format_config(mutated_child_config), debug=debug)
         new_generation_candidates.append({'config': mutated_child_config, 'fitness': child_fitness})
 
@@ -325,13 +350,13 @@ def _perform_migration(populations, debug=False):
                     print(f"  Migrant from island {source_idx} added to island {target_island_idx} (was unexpectedly empty).", file=sys.stderr)
 
 
-def genetic_optimize_all_options(base_options_info, repo_path, json_options_lookup, forced_options_lookup, num_iterations, total_population_size, num_islands, debug=False, plot_fitness=False):
+def genetic_optimize_all_options(base_options_info, repo_paths, json_options_lookup, forced_options_lookup, num_iterations, total_population_size, num_islands, debug=False, plot_fitness=False):
     """
     Optimizes clang-format configuration using a genetic algorithm with an island model.
 
     Args:
         base_options_info (dict): The initial flat dictionary from clang-format --dump-config.
-        repo_path (str): Path to the git repository.
+        repo_paths (list): A list of paths to the temporary git repositories for parallel processing.
         json_options_lookup (dict): A dictionary mapping option names to their info
                                     from the JSON file, used to find possible values.
         forced_options_lookup (dict): A dictionary mapping option names to forced values.
@@ -344,8 +369,10 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
     Returns:
         dict: The flat dictionary of the best clang-format configuration found.
     """
-    global _stop_optimization_flag
-    _stop_optimization_flag = False # Reset flag for a new run
+    global _stop_optimization_flag, _mp_stop_event # Declare global usage
+
+    _stop_optimization_flag = False # Reset local flag for a new run
+    _mp_stop_event = multiprocessing.Event() # Initialize the shared event here
 
     if num_islands < 1:
         print("Error: Number of islands must be at least 1. Setting to 1.", file=sys.stderr)
@@ -376,13 +403,19 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
             base_individual_config[forced_path]['value'] = forced_value
 
     print("Calculating initial base configuration fitness...", file=sys.stderr)
-    base_fitness = run_clang_format_and_count_changes(repo_path, generate_clang_format_config(base_individual_config), debug=debug)
+    # Use the first repo path for initial fitness calculation, as all copies are identical
+    initial_repo_path = repo_paths[0] if repo_paths else None
+    if initial_repo_path is None:
+        print("Error: No repository paths provided for initialization.", file=sys.stderr)
+        return {} # Or raise an error
+
+    base_fitness = run_clang_format_and_count_changes(initial_repo_path, generate_clang_format_config(base_individual_config), debug=debug)
     print(f"Initial base configuration fitness: {base_fitness}", file=sys.stderr)
 
     # Initialize each island's population with copies of the base individual
     for i in range(num_islands):
         island_pop = []
-        for j in range(island_population_size):
+        for _ in range(island_population_size):
             if _stop_optimization_flag: # Check flag during initialization too
                 print("Initialization interrupted.", file=sys.stderr)
                 break
@@ -433,64 +466,85 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
     # Migration interval (e.g., migrate every 10 generations)
     MIGRATION_INTERVAL = 25
 
-    # Evolution Loop
-    for iteration in range(num_iterations):
-        if _stop_optimization_flag:
-            print("\nOptimization loop interrupted by user.", file=sys.stderr)
-            break # Exit the main optimization loop
+    # Create the multiprocessing pool
+    # The number of processes in the pool is limited by the number of available repo copies
+    num_processes = len(repo_paths)
+    pool = multiprocessing.Pool(processes=num_processes, initializer=_worker_init, initargs=(_mp_stop_event,))
 
-        print(f"\n--- Iteration {iteration + 1}/{num_iterations} ---", file=sys.stderr)
+    try:
+        # Evolution Loop
+        for iteration in range(num_iterations):
+            if _stop_optimization_flag: # Check local flag for main loop
+                print("\nOptimization loop interrupted by user.", file=sys.stderr)
+                break # Exit the main optimization loop
 
-        # Evolve each island independently
-        for i, island_pop in enumerate(populations):
-            if _stop_optimization_flag: # Check flag before evolving next island
-                print(f"  Skipping remaining islands due to interruption.", file=sys.stderr)
-                break
-            print(f"  Evolving Island {i + 1}...", file=sys.stderr)
-            new_island_pop, best_in_island_for_this_gen = _evolve_island_generation(
-                island_pop, repo_path, json_options_lookup, forced_options_lookup, island_population_size, debug
-            )
-            populations[i] = new_island_pop # Update the island's population
-            print(f"    Island {i + 1} best fitness: {best_in_island_for_this_gen['fitness']}", file=sys.stderr)
+            print(f"\n--- Iteration {iteration + 1}/{num_iterations} ---", file=sys.stderr)
 
-            # Store fitness for plotting
-            fitness_history_per_island[i].append(best_in_island_for_this_gen['fitness'])
+            # Prepare arguments for each island's evolution task
+            tasks_args = []
+            for i, island_pop in enumerate(populations):
+                # Cycle through repo_paths to assign one to each island's task
+                repo_path_for_island = repo_paths[i % num_processes]
+                tasks_args.append((
+                    island_pop,
+                    repo_path_for_island,
+                    json_options_lookup,
+                    forced_options_lookup,
+                    island_population_size,
+                    debug,
+                ))
 
-            # Update overall best individual if this island found a better one
-            if best_in_island_for_this_gen['fitness'] < best_overall_individual['fitness']:
-                best_overall_individual = best_in_island_for_this_gen
-                print(f"    New overall best fitness found: {best_overall_individual['fitness']}", file=sys.stderr)
+            # Run island evolutions in parallel
+            # Use map instead of starmap because _evolve_island_generation_task expects a single tuple argument
+            results = pool.map(_evolve_island_generation_task, tasks_args)
 
-        # Update plot after all islands have evolved in this iteration
-        if plot_fitness and not _stop_optimization_flag: # Only update if not interrupted
-            assert ax is not None
-            assert fig is not None
-            assert plt is not None
-            for i, history in enumerate(fitness_history_per_island):
-                lines[i].set_data(range(len(history)), history)
-            ax.relim() # Recalculate limits
-            ax.autoscale_view() # Autoscale axes
-            fig.canvas.draw()
-            fig.canvas.flush_events()
-            plt.pause(0.01) # Short pause to allow plot to update
+            # Process results from parallel evolution
+            for i, (new_island_pop, best_in_island_for_this_gen) in enumerate(results):
+                populations[i] = new_island_pop # Update the island's population
+                print(f"    Island {i + 1} best fitness: {best_in_island_for_this_gen['fitness']}", file=sys.stderr)
 
-        # Perform migration periodically if there's more than one island
-        if num_islands > 1 and (iteration + 1) % MIGRATION_INTERVAL == 0 and not _stop_optimization_flag:
-            print(f"\n--- Performing migration at iteration {iteration + 1} ---", file=sys.stderr)
-            _perform_migration(populations, debug)
+                # Store fitness for plotting
+                fitness_history_per_island[i].append(best_in_island_for_this_gen['fitness'])
 
-            # After migration, re-find the overall best individual from the updated populations
-            all_individuals_after_migration = [ind for island_pop in populations for ind in island_pop]
-            if all_individuals_after_migration:
-                current_overall_best_after_migration = min(all_individuals_after_migration, key=lambda x: x['fitness'])
-                if current_overall_best_after_migration['fitness'] < best_overall_individual['fitness']:
-                    best_overall_individual = current_overall_best_after_migration
-                    print(f"  New overall best fitness found after migration: {best_overall_individual['fitness']}", file=sys.stderr)
+                # Update overall best individual if this island found a better one
+                if best_in_island_for_this_gen['fitness'] < best_overall_individual['fitness']:
+                    best_overall_individual = best_in_island_for_this_gen
+                    print(f"    New overall best fitness found: {best_overall_individual['fitness']}", file=sys.stderr)
+
+            # Update plot after all islands have evolved in this iteration
+            if plot_fitness and not _stop_optimization_flag: # Only update if not interrupted
+                assert ax is not None
+                assert fig is not None
+                assert plt is not None
+                for i, history in enumerate(fitness_history_per_island):
+                    lines[i].set_data(range(len(history)), history)
+                ax.relim() # Recalculate limits
+                ax.autoscale_view() # Autoscale axes
+                fig.canvas.draw()
+                fig.canvas.flush_events()
+                plt.pause(0.01) # Short pause to allow plot to update
+
+            # Perform migration periodically if there's more than one island
+            if num_islands > 1 and (iteration + 1) % MIGRATION_INTERVAL == 0 and not _stop_optimization_flag:
+                print(f"\n--- Performing migration at iteration {iteration + 1} ---", file=sys.stderr)
+                _perform_migration(populations, debug)
+
+                # After migration, re-find the overall best individual from the updated populations
+                all_individuals_after_migration = [ind for island_pop in populations for ind in island_pop]
+                if all_individuals_after_migration:
+                    current_overall_best_after_migration = min(all_individuals_after_migration, key=lambda x: x['fitness'])
+                    if current_overall_best_after_migration['fitness'] < best_overall_individual['fitness']:
+                        best_overall_individual = current_overall_best_after_migration
+                        print(f"  New overall best fitness found after migration: {current_overall_best_after_migration['fitness']}", file=sys.stderr)
+                    else:
+                        print(f"  Overall best fitness remains: {best_overall_individual['fitness']} after migration.", file=sys.stderr)
                 else:
-                    print(f"  Overall best fitness remains: {best_overall_individual['fitness']} after migration.", file=sys.stderr)
-            else:
-                print("Warning: All populations are empty after migration. This should not happen.", file=sys.stderr)
+                    print("Warning: All populations are empty after migration. This should not happen.", file=sys.stderr)
 
+
+    finally:
+        pool.close() # Prevent new tasks from being submitted
+        pool.join()  # Wait for all current tasks to complete
 
     print(f"\nGenetic algorithm finished. Best overall fitness: {best_overall_individual['fitness']}", file=sys.stderr)
 

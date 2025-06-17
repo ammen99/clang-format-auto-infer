@@ -9,6 +9,7 @@ formatting churn and improving code consistency.
 *   **Change Minimization** 📊: The fitness function for the genetic algorithm is based on minimizing the `git diff --shortstat` output (total insertions and
 deletions) after applying `clang-format`.
 *   **Interactive Plotting** 📈: Optionally visualizes the fitness evolution of the genetic algorithm using `matplotlib` (use `--plot-fitness` to enable).
+*   **Parallelization** ⚡: Utilize multiple CPU cores by creating temporary copies of the repository and running fitness calculations in parallel.
 *   **Graceful Termination** 🛑: Supports `Ctrl-C` to gracefully stop the optimization process and return the best configuration found so far.
 ## Installation
 ### Prerequisites 🛠️
@@ -70,20 +71,22 @@ python3 main.py <repo_path> [OPTIONS]
 *   `--islands <int>`: Number of independent populations (islands) for the genetic algorithm (default: `1`). Using more islands can help explore the search
 space more effectively.
 *   `--plot-fitness`: Visualize the best fitness score over time for each island using `matplotlib`.
+*   `-j`, `--jobs <int>`: Number of parallel jobs to run for fitness calculation (default: `1`). Each job will operate on a separate temporary copy of your repository. Increase this to utilize more CPU cores.
 
 ### Example Usage
 To optimize the `clang-format` configuration for a repository located at `/home/user/my_project`, using the generated JSON values and a forced options YAML,
-running for 50 iterations with 4 islands (4 individuals per island), and saving the output to `optimized.clang-format`:
+running for 50 iterations with 4 islands (4 individuals per island), and saving the output to `optimized.clang-format`, using 4 parallel jobs:
 
 ```sh
-python3 main.py /home/user/my_project
-    --option-values-json data/clang-format-values.json
-    --forced-options-yaml data/forced.yml
-    --iterations 50
-    --population-size 16
-    --islands 4
-    --output optimized.clang-format
-    --plot-fitness
+python3 main.py /home/user/my_project \
+    --option-values-json data/clang-format-values.json \
+    --forced-options-yaml data/forced.yml \
+    --iterations 50 \
+    --population-size 16 \
+    --islands 4 \
+    --output optimized.clang-format \
+    --plot-fitness \
+    --jobs 4
 ```
 
 ## Contributing 👋
