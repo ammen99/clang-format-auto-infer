@@ -79,26 +79,30 @@ def parse_options(html_content):
 
                 if option_name and option_type:
                     values = []
-                    # Look for "Possible values:" list in the dd tag
-                    # Find the text node "Possible values:"
-                    possible_values_heading = dd_tag.find(string=re.compile(r'Possible values:')) # type: ignore
-                    if possible_values_heading:
-                        # The list is usually immediately after the heading
-                        values_list = possible_values_heading.find_next('ul')
-                        if values_list:
-                            for li in values_list.find_all('li'): # type: ignore
-                                # Extract the configuration value
-                                # It's often in a code tag, sometimes after "(in configuration: "
-                                li_text = li.get_text().strip()
-                                config_value_match = re.search(r'\(in configuration:\s*(.*?)\)', li_text)
-                                if config_value_match:
-                                    values.append(config_value_match.group(1).strip())
-                                else:
-                                    # Fallback: get the text from the first code tag in the li
-                                    code_tag_value = li.find('code') # type: ignore
-                                    if code_tag_value:
-                                        values.append(code_tag_value.get_text().strip()) # type: ignore
-                                    # If no specific format found, maybe skip or add raw text? Let's skip for now.
+                    # Special case for Boolean types
+                    if option_type == 'Boolean':
+                        values = ['true', 'false']
+                    else:
+                        # Look for "Possible values:" list in the dd tag
+                        # Find the text node "Possible values:"
+                        possible_values_heading = dd_tag.find(string=re.compile(r'Possible values:')) # type: ignore
+                        if possible_values_heading:
+                            # The list is usually immediately after the heading
+                            values_list = possible_values_heading.find_next('ul')
+                            if values_list:
+                                for li in values_list.find_all('li'): # type: ignore
+                                    # Extract the configuration value
+                                    # It's often in a code tag, sometimes after "(in configuration: "
+                                    li_text = li.get_text().strip()
+                                    config_value_match = re.search(r'\(in configuration:\s*(.*?)\)', li_text)
+                                    if config_value_match:
+                                        values.append(config_value_match.group(1).strip())
+                                    else:
+                                        # Fallback: get the text from the first code tag in the li
+                                        code_tag_value = li.find('code') # type: ignore
+                                        if code_tag_value:
+                                            values.append(code_tag_value.get_text().strip()) # type: ignore
+                                        # If no specific format found, maybe skip or add raw text? Let's skip for now.
 
                     options_data[option_name] = {
                         'type': option_type,
