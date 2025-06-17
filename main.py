@@ -70,13 +70,13 @@ def main():
     parser.add_argument(
         "--iterations",
         type=int,
-        default=10,
+        default=100,
         help="Number of iterations (generations) for the genetic algorithm."
     )
     parser.add_argument(
         "--population-size",
         type=int,
-        default=50, # Increased default for better GA performance with islands
+        default=4, # Increased default for better GA performance with islands
         help="Total number of individuals across all islands in the genetic algorithm population."
     )
     parser.add_argument(
