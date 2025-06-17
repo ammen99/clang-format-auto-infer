@@ -449,7 +449,7 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
         print(f"Adjusted total population size to {total_population_size} to ensure at least {island_population_size} individuals per island.", file=sys.stderr)
     elif total_population_size < num_islands * MIN_INDIVIDUALS_PER_ISLAND:
         print(f"Warning: Total population size ({total_population_size}) is too small for {num_islands} islands "
-              f"with a minimum of {MIN_INDIVIDUALS_PER_ISLAND} individuals per island. "
+              f"with a minimum of {MIN_INDIVIDUALS_PER_INDIVIDUALS} individuals per island. "
               f"Each island will have {island_population_size} individuals.", file=sys.stderr)
 
 
@@ -610,19 +610,21 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
 
 
     finally:
-        pool.close() # Prevent new tasks from being submitted
-        pool.join() # Wait for all tasks to complete and workers to exit.
-                    # Note: multiprocessing.Pool.join() does not have a timeout parameter.
-                    # If workers can hang indefinitely, a more complex shutdown with
-                    # a separate timer and pool.terminate() might be needed.
-                    # For now, we rely on workers eventually exiting.
+        if _stop_optimization_flag:
+            print("\nForcing termination of worker pool due to interruption...", file=sys.stderr)
+            pool.terminate() # Terminate workers immediately
+        else:
+            pool.close() # Allow workers to finish current tasks gracefully
+
+        pool.join() # Wait for all workers to exit (either gracefully or terminated)
+        print("Worker pool shut down.", file=sys.stderr)
 
     print(f"\nGenetic algorithm finished. Best overall fitness: {best_overall_individual['fitness']}", file=sys.stderr)
 
-    # Keep the plot open at the end if it was generated
-    if plot_fitness and MATPLOTLIB_AVAILABLE: # Check MATPLOTLIB_AVAILABLE again before final show
-        assert plt is not None # Assert plt is not None here
-        plt.ioff() # Turn off interactive mode
-        plt.show() # Show the final plot and block until closed
+    # Keep the plot open at the end if it was generated AND optimization was not interrupted
+    if plot_fitness and MATPLOTLIB_AVAILABLE and not _stop_optimization_flag:
+        assert plt is not None
+        plt.ioff()
+        plt.show()
 
     return best_overall_individual['config']
