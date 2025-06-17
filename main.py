@@ -135,9 +135,11 @@ def run_clang_format_and_count_changes(repo_path, config_string):
         config_string (str): The clang-format configuration as a YAML string.
 
     Returns:
-        int: The total number of lines added or deleted by clang-format.
-             Returns -1 if an error occurs during git diff or file listing.
-             Exits the script if a clang-format execution error occurs.
+        int or float('inf'): The total number of lines added or deleted by clang-format (>= 0).
+                             Returns float('inf') if clang-format reports an invalid configuration
+                             (e.g., "cannot be used with").
+                             Returns -1 if a non-clang-format error occurs (like git diff or file listing).
+                             Exits the script if a different type of clang-format execution error occurs.
     """
     original_cwd = os.getcwd()
     # Ensure we are in the repo directory for git commands
@@ -182,22 +184,36 @@ def run_clang_format_and_count_changes(repo_path, config_string):
             sys.exit(1) # Exit immediately as requested
         except subprocess.CalledProcessError as e:
             # Catch specific clang-format errors and report them
-            print(f"Error running clang-format with the current configuration:", file=sys.stderr)
-            print(f"Command: {' '.join(e.cmd)}", file=sys.stderr)
-            print(f"Exit code: {e.returncode}", file=sys.stderr)
-            if e.stdout:
-                 print(f"Stdout:\n{e.stdout}", file=sys.stderr)
-            if e.stderr:
-                 print(f"Stderr:\n{e.stderr}", file=sys.stderr)
+            error_output = (e.stdout or "") + (e.stderr or "") # Combine stdout and stderr for checking
 
-            # Copy the problematic config file before exiting
-            try:
-                shutil.copyfile(temp_config_file, error_config_dest)
-                print(f"\nConfiguration causing the error copied to {error_config_dest} for inspection.", file=sys.stderr)
-            except IOError as copy_error:
-                print(f"Error copying temporary config file to {error_config_dest}: {copy_error}", file=sys.stderr)
+            if "cannot be used with" in error_output:
+                # This is a known invalid configuration error, treat as high cost
+                print(f"Warning: clang-format reported an invalid configuration ('cannot be used with'). Treating as high cost.", file=sys.stderr)
+                if DEBUG:
+                    print(f"Command: {' '.join(e.cmd)}", file=sys.stderr)
+                    print(f"Exit code: {e.returncode}", file=sys.stderr)
+                    if e.stdout: print(f"Stdout:\n{e.stdout}", file=sys.stderr)
+                    if e.stderr: print(f"Stderr:\n{e.stderr}", file=sys.stderr)
+                # Return infinity to signify a very bad configuration
+                return float('inf')
+            else:
+                # Other clang-format errors are critical, exit
+                print(f"Error running clang-format with the current configuration:", file=sys.stderr)
+                print(f"Command: {' '.join(e.cmd)}", file=sys.stderr)
+                print(f"Exit code: {e.returncode}", file=sys.stderr)
+                if e.stdout:
+                     print(f"Stdout:\n{e.stdout}", file=sys.stderr)
+                if e.stderr:
+                     print(f"Stderr:\n{e.stderr}", file=sys.stderr)
 
-            sys.exit(1) # Exit immediately as requested
+                # Copy the problematic config file before exiting
+                try:
+                    shutil.copyfile(temp_config_file, error_config_dest)
+                    print(f"\nConfiguration causing the error copied to {error_config_dest} for inspection.", file=sys.stderr)
+                except IOError as copy_error:
+                    print(f"Error copying temporary config file to {error_config_dest}: {copy_error}", file=sys.stderr)
+
+                sys.exit(1) # Exit immediately as requested
 
         # Count changes using git diff --shortstat from the repo directory
         git_diff_cmd = ["git", "diff", "--shortstat"]
@@ -260,6 +276,7 @@ def run_clang_format_and_count_changes(repo_path, config_string):
 
         # Clean up the temporary config file
         # This file is copied *before* exit on clang-format error, so removing it here is fine.
+        # It's also removed if clang-format succeeds or returns float('inf').
         if os.path.exists(temp_config_file):
             try:
                 os.remove(temp_config_file)
@@ -361,12 +378,14 @@ def optimize_option_with_values(parent_dict, option_name, repo_path, root_option
         parent_dict[option_name]['value'] = value_to_test
         config_string = generate_clang_format_config(root_options_dict)
 
-        # run_clang_format_and_count_changes will now exit on clang-format error
-        # If it returns, it means git diff or file listing failed (-1) or it succeeded (>= 0)
+        # run_clang_format_and_count_changes will now exit on critical clang-format error,
+        # return float('inf') on invalid config error, or return >= 0 on success, or -1 on git error.
         changes = run_clang_format_and_count_changes(repo_path, config_string)
         # results[value_to_test] = changes # removed
 
-        if changes != -1: # Only consider successful runs (>= 0 changes)
+        # We now consider float('inf') as a valid (but high) result, not an error to skip
+        if changes != -1: # Only skip if it's a git-related error (-1)
+            # Treat float('inf') as a very high change count
             print(f"    Changes with {value_to_test}: {changes}", file=sys.stderr)
             if changes < min_changes:
                 min_changes = changes
@@ -379,12 +398,18 @@ def optimize_option_with_values(parent_dict, option_name, repo_path, root_option
 
 
     # --- Decide Best Value ---
-    # If min_changes is still infinity, it means all tests failed (returned -1)
+    # If min_changes is still infinity, it means all tests failed (returned -1 or float('inf'))
+    # If all tests returned float('inf'), min_changes will be float('inf'), and best_value will be the last tested value.
+    # If some tests returned float('inf') and some returned >= 0, min_changes will be the minimum >= 0.
+    # If all tests returned -1, min_changes will be float('inf').
     if min_changes == float('inf'):
-        print(f"  All tests failed for '{option_name}'. Keeping original value: {original_value}", file=sys.stderr)
+        # This happens if all tested values resulted in either a git error (-1) or an invalid clang-format config (float('inf')).
+        # In this case, we keep the original value as we couldn't find a better valid one.
+        print(f"  All tests failed or resulted in invalid configurations for '{option_name}'. Keeping original value: {original_value}", file=sys.stderr)
         # Value is currently the last tested value, restore original
         parent_dict[option_name]['value'] = original_value
     else:
+        # min_changes is a finite number (>= 0), meaning at least one configuration was valid and formatted files.
         print(f"  Best value for '{option_name}': {best_value} (changes: {min_changes})", file=sys.stderr)
         parent_dict[option_name]['value'] = best_value
 
