@@ -1,7 +1,7 @@
 import sys
 import copy
 import random
-import signal # New import
+import signal
 
 # Import formatter and config generator
 from .repo_formatter import run_clang_format_and_count_changes
@@ -395,6 +395,11 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
     # Data structure to store best fitness for each island over time
     fitness_history_per_island = [[] for _ in range(num_islands)]
 
+    # Initialize plot variables to None/empty list
+    fig = None
+    ax = None
+    lines = []
+
     # Setup plot if requested and matplotlib is available
     if plot_fitness and MATPLOTLIB_AVAILABLE:
         plt.ion() # Turn on interactive mode
@@ -412,10 +417,6 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
     elif plot_fitness and not MATPLOTLIB_AVAILABLE:
         print("Plotting requested but matplotlib is not available. Skipping plot.", file=sys.stderr)
         plot_fitness = False # Disable plotting for the rest of the function
-    else: # If plot_fitness is False from the start
-        lines = []
-        ax = None
-        fig = None
 
 
     # Migration interval (e.g., migrate every 10 generations)
@@ -483,7 +484,7 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
     print(f"\nGenetic algorithm finished. Best overall fitness: {best_overall_individual['fitness']}", file=sys.stderr)
 
     # Keep the plot open at the end if it was generated
-    if plot_fitness:
+    if plot_fitness and MATPLOTLIB_AVAILABLE: # Check MATPLOTLIB_AVAILABLE again before final show
         plt.ioff() # Turn off interactive mode
         plt.show() # Show the final plot and block until closed
 
