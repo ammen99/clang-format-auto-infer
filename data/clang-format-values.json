@@ -1,19 +1,5 @@
 [
   {
-    "name": "BasedOnStyle",
-    "type": "String",
-    "possible_values": [
-      "LLVM",
-      "Google",
-      "Chromium",
-      "Mozilla",
-      "WebKit",
-      "Microsoft",
-      "GNU",
-      "InheritParentConfig"
-    ]
-  },
-  {
     "name": "AccessModifierOffset",
     "type": "Integer",
     "possible_values": [
@@ -52,8 +38,78 @@
     "possible_values": null
   },
   {
+    "name": "AlignConsecutiveAssignments.AcrossComments",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveAssignments.AcrossEmptyLines",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveAssignments.AlignCompound",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveAssignments.AlignFunctionDeclarations",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveAssignments.AlignFunctionPointers",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveAssignments.Enabled",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveAssignments.PadOperators",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
     "name": "AlignConsecutiveBitFields",
     "type": "AlignConsecutiveStyle",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveBitFields.AcrossComments",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveBitFields.AcrossEmptyLines",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveBitFields.AlignCompound",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveBitFields.AlignFunctionDeclarations",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveBitFields.AlignFunctionPointers",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveBitFields.Enabled",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveBitFields.PadOperators",
+    "type": "bool",
     "possible_values": null
   },
   {
@@ -62,8 +118,78 @@
     "possible_values": null
   },
   {
+    "name": "AlignConsecutiveDeclarations.AcrossComments",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveDeclarations.AcrossEmptyLines",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveDeclarations.AlignCompound",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveDeclarations.AlignFunctionDeclarations",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveDeclarations.AlignFunctionPointers",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveDeclarations.Enabled",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveDeclarations.PadOperators",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
     "name": "AlignConsecutiveMacros",
     "type": "AlignConsecutiveStyle",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveMacros.AcrossComments",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveMacros.AcrossEmptyLines",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveMacros.AlignCompound",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveMacros.AlignFunctionDeclarations",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveMacros.AlignFunctionPointers",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveMacros.Enabled",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveMacros.PadOperators",
+    "type": "bool",
     "possible_values": null
   },
   {
@@ -72,8 +198,68 @@
     "possible_values": null
   },
   {
+    "name": "AlignConsecutiveShortCaseStatements.AcrossComments",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveShortCaseStatements.AcrossEmptyLines",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveShortCaseStatements.AlignCaseArrows",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveShortCaseStatements.AlignCaseColons",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveShortCaseStatements.Enabled",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
     "name": "AlignConsecutiveTableGenBreakingDAGArgColons",
     "type": "AlignConsecutiveStyle",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenBreakingDAGArgColons.AcrossComments",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenBreakingDAGArgColons.AcrossEmptyLines",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenBreakingDAGArgColons.AlignCompound",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenBreakingDAGArgColons.AlignFunctionDeclarations",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenBreakingDAGArgColons.AlignFunctionPointers",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenBreakingDAGArgColons.Enabled",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenBreakingDAGArgColons.PadOperators",
+    "type": "bool",
     "possible_values": null
   },
   {
@@ -82,8 +268,78 @@
     "possible_values": null
   },
   {
+    "name": "AlignConsecutiveTableGenCondOperatorColons.AcrossComments",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenCondOperatorColons.AcrossEmptyLines",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenCondOperatorColons.AlignCompound",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenCondOperatorColons.AlignFunctionDeclarations",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenCondOperatorColons.AlignFunctionPointers",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenCondOperatorColons.Enabled",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenCondOperatorColons.PadOperators",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
     "name": "AlignConsecutiveTableGenDefinitionColons",
     "type": "AlignConsecutiveStyle",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenDefinitionColons.AcrossComments",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenDefinitionColons.AcrossEmptyLines",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenDefinitionColons.AlignCompound",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenDefinitionColons.AlignFunctionDeclarations",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenDefinitionColons.AlignFunctionPointers",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenDefinitionColons.Enabled",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "AlignConsecutiveTableGenDefinitionColons.PadOperators",
+    "type": "bool",
     "possible_values": null
   },
   {
@@ -108,11 +364,21 @@
   {
     "name": "AlignTrailingComments",
     "type": "TrailingCommentsAlignmentStyle",
+    "possible_values": null
+  },
+  {
+    "name": "AlignTrailingComments.Kind",
+    "type": "TrailingCommentsAlignmentKinds",
     "possible_values": [
       "Leave",
       "Always",
       "Never"
     ]
+  },
+  {
+    "name": "AlignTrailingComments.OverEmptyLines",
+    "type": "unsigned",
+    "possible_values": null
   },
   {
     "name": "AllowAllArgumentsOnNextLine",
@@ -268,6 +534,11 @@
     "possible_values": null
   },
   {
+    "name": "BasedOnStyle",
+    "type": "String",
+    "possible_values": null
+  },
+  {
     "name": "BinPackArguments",
     "type": "Boolean",
     "possible_values": [
@@ -305,11 +576,101 @@
   {
     "name": "BraceWrapping",
     "type": "BraceWrappingFlags",
+    "possible_values": null
+  },
+  {
+    "name": "BraceWrapping.AfterCaseLabel",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "BraceWrapping.AfterClass",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "BraceWrapping.AfterControlStatement",
+    "type": "BraceWrappingAfterControlStatementStyle",
     "possible_values": [
       "Never",
       "MultiLine",
       "Always"
     ]
+  },
+  {
+    "name": "BraceWrapping.AfterEnum",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "BraceWrapping.AfterExternBlock",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "BraceWrapping.AfterFunction",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "BraceWrapping.AfterNamespace",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "BraceWrapping.AfterObjCDeclaration",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "BraceWrapping.AfterStruct",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "BraceWrapping.AfterUnion",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "BraceWrapping.BeforeCatch",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "BraceWrapping.BeforeElse",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "BraceWrapping.BeforeLambdaBody",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "BraceWrapping.BeforeWhile",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "BraceWrapping.IndentBraces",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "BraceWrapping.SplitEmptyFunction",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "BraceWrapping.SplitEmptyNamespace",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "BraceWrapping.SplitEmptyRecord",
+    "type": "bool",
+    "possible_values": null
   },
   {
     "name": "BracedInitializerIndentWidth",
@@ -759,6 +1120,36 @@
     "possible_values": null
   },
   {
+    "name": "IntegerLiteralSeparator.Binary",
+    "type": "int8_t",
+    "possible_values": null
+  },
+  {
+    "name": "IntegerLiteralSeparator.BinaryMinDigits",
+    "type": "int8_t",
+    "possible_values": null
+  },
+  {
+    "name": "IntegerLiteralSeparator.Decimal",
+    "type": "int8_t",
+    "possible_values": null
+  },
+  {
+    "name": "IntegerLiteralSeparator.DecimalMinDigits",
+    "type": "int8_t",
+    "possible_values": null
+  },
+  {
+    "name": "IntegerLiteralSeparator.Hex",
+    "type": "int8_t",
+    "possible_values": null
+  },
+  {
+    "name": "IntegerLiteralSeparator.HexMinDigits",
+    "type": "int8_t",
+    "possible_values": null
+  },
+  {
     "name": "JavaImportGroups",
     "type": "List of Strings",
     "possible_values": null
@@ -783,6 +1174,21 @@
   {
     "name": "KeepEmptyLines",
     "type": "KeepEmptyLinesStyle",
+    "possible_values": null
+  },
+  {
+    "name": "KeepEmptyLines.AtEndOfFile",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "KeepEmptyLines.AtStartOfBlock",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "KeepEmptyLines.AtStartOfFile",
+    "type": "bool",
     "possible_values": null
   },
   {
@@ -1156,6 +1562,16 @@
     "possible_values": null
   },
   {
+    "name": "SortIncludes.Enabled",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "SortIncludes.IgnoreCase",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
     "name": "SortJavaStaticImport",
     "type": "SortJavaStaticImportOptions",
     "possible_values": [
@@ -1280,6 +1696,56 @@
     "possible_values": null
   },
   {
+    "name": "SpaceBeforeParensOptions.AfterControlStatements",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "SpaceBeforeParensOptions.AfterForeachMacros",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "SpaceBeforeParensOptions.AfterFunctionDeclarationName",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "SpaceBeforeParensOptions.AfterFunctionDefinitionName",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "SpaceBeforeParensOptions.AfterIfMacros",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "SpaceBeforeParensOptions.AfterOverloadedOperator",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "SpaceBeforeParensOptions.AfterPlacementOperator",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "SpaceBeforeParensOptions.AfterRequiresInClause",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "SpaceBeforeParensOptions.AfterRequiresInExpression",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "SpaceBeforeParensOptions.BeforeNonEmptyParentheses",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
     "name": "SpaceBeforeRangeBasedForLoopColon",
     "type": "Boolean",
     "possible_values": [
@@ -1355,6 +1821,16 @@
     "possible_values": null
   },
   {
+    "name": "SpacesInLineCommentPrefix.Maximum",
+    "type": "unsigned",
+    "possible_values": null
+  },
+  {
+    "name": "SpacesInLineCommentPrefix.Minimum",
+    "type": "unsigned",
+    "possible_values": null
+  },
+  {
     "name": "SpacesInParens",
     "type": "SpacesInParensStyle",
     "possible_values": [
@@ -1365,6 +1841,31 @@
   {
     "name": "SpacesInParensOptions",
     "type": "SpacesInParensCustom",
+    "possible_values": null
+  },
+  {
+    "name": "SpacesInParensOptions.ExceptDoubleParentheses",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "SpacesInParensOptions.InCStyleCasts",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "SpacesInParensOptions.InConditionalStatements",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "SpacesInParensOptions.InEmptyParentheses",
+    "type": "bool",
+    "possible_values": null
+  },
+  {
+    "name": "SpacesInParensOptions.Other",
+    "type": "bool",
     "possible_values": null
   },
   {
