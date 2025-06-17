@@ -1,2 +1,3 @@
 DisableFormat: false
 Language: Cpp
+QualifierAlignment: Leave
