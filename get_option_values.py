@@ -2,6 +2,7 @@ from bs4 import BeautifulSoup # pyright: ignore
 import requests
 import sys
 import re
+import json # Import the json library
 
 def fetch_html_content(url):
     """Fetches HTML content from a given URL."""
@@ -126,25 +127,23 @@ if __name__ == '__main__':
     html_content = fetch_html_content(url)
 
     if html_content:
-        options = parse_options(html_content)
-        if options:
-            print("Clang-Format Style Options and Possible Values:")
-            print("----------------------------------------------")
-            for name, info in options.items():
-                print(f"Option: {name}")
-                print(f"  Type: {info['type']}")
-                if info['possible_values'] is not None: # Check explicitly for None
-                    if info['possible_values']:
-                         print(f"  Possible Values: {', '.join(info['possible_values'])}")
-                    else:
-                         print("  Possible Values: (List is empty or could not be parsed)")
-                else:
-                    # Indicate if it's a simple type or has nested options
-                    # Let's just indicate no explicit list was found.
-                    print("  Possible Values: (No explicit list provided)")
+        options_dict = parse_options(html_content)
+        if options_dict:
+            # Convert the dictionary format to the desired list format
+            options_list = []
+            for name, info in options_dict.items():
+                options_list.append({
+                    'name': name,
+                    'type': info['type'],
+                    'possible_values': info['possible_values']
+                })
 
-                print("-" * 30)
+            # Output the list as a JSON string
+            print(json.dumps(options_list, indent=2))
         else:
-            print("No options found or parsing failed.")
+            # Print an empty JSON list if no options were found/parsed
+            print("[]")
+            sys.exit(0) # Exit successfully even if no options were found
+
     else:
         sys.exit(1) # Exit with an error code if fetching failed
