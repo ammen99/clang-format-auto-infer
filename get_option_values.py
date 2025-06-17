@@ -14,15 +14,18 @@ def fetch_html_content(url):
         return None
 
 def parse_options(html_content):
-    print(html_content)
     """Parses HTML content to extract clang-format options and their values."""
     soup = BeautifulSoup(html_content, 'lxml') # Use lxml parser
 
     options_data = {}
+    options_section_heading = None
 
     # Find the section containing the options
-    # Search for an h2 tag whose text starts with "Configurable Format Style Options"
-    options_section_heading = soup.find('h2', string=re.compile(r'^Configurable Format Style Options.*'))
+    # Search for an h2 tag whose text content starts with "Configurable Format Style Options"
+    for h2_tag in soup.find_all('h2'):
+        if h2_tag.get_text(strip=True).startswith('Configurable Format Style Options'):
+            options_section_heading = h2_tag
+            break
 
     if not options_section_heading:
         print("Could not find the 'Configurable Format Style Options' section.", file=sys.stderr)
