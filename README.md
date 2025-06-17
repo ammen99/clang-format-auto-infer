@@ -77,13 +77,13 @@ running for 50 iterations with 4 islands (4 individuals per island), and saving 
 
 ```sh
 python3 main.py /home/user/my_project
---option-values-json data/clang-format-values.json
---forced-options-yaml data/forced.yml
---iterations 50
---population-size 16
---islands 4
---output optimized.clang-format
---plot-fitness
+    --option-values-json data/clang-format-values.json
+    --forced-options-yaml data/forced.yml
+    --iterations 50
+    --population-size 16
+    --islands 4
+    --output optimized.clang-format
+    --plot-fitness
 ```
 
 ## Contributing 👋
