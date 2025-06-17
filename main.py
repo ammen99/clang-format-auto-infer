@@ -5,7 +5,7 @@ import sys
 import yaml
 import re
 import copy
-import json # Import the json library
+import json
 
 # Global debug flag
 DEBUG = False
@@ -315,7 +315,7 @@ def optimize_option_with_values(parent_dict, option_name, repo_path, root_option
 
     min_changes = float('inf')
     best_value = original_value
-    results = {} # Store results for printing
+    # results = {} # Store results for printing - removed as not currently used
 
     for value_to_test in possible_values:
         # Ensure the value type matches the expected type from dump-config
@@ -334,7 +334,7 @@ def optimize_option_with_values(parent_dict, option_name, repo_path, root_option
                  value_to_test = int(value_to_test)
              except (ValueError, TypeError):
                  print(f"Warning: Could not convert value '{value_to_test}' to int for option '{option_name}'. Skipping.", file=sys.stderr)
-                 results[value_to_test] = -1 # Mark as failed
+                 # results[value_to_test] = -1 # Mark as failed - removed
                  continue # Skip this value
 
         # Add other type conversions if necessary (e.g., float, list, etc.)
@@ -345,7 +345,7 @@ def optimize_option_with_values(parent_dict, option_name, repo_path, root_option
         config_string = generate_clang_format_config(root_options_dict)
 
         changes = run_clang_format_and_count_changes(repo_path, config_string)
-        results[value_to_test] = changes
+        # results[value_to_test] = changes # removed
 
         if changes != -1: # Only consider successful runs
             print(f"    Changes with {value_to_test}: {changes}", file=sys.stderr)
@@ -404,13 +404,37 @@ def optimize_options_recursively(current_options_dict, repo_path, root_options_d
                 continue # Skip optimization for forced options
 
             # Check if we have possible values for this option from the JSON
+            # The check for missing options is done before optimization starts
             if option_name in json_options_lookup and json_options_lookup[option_name]['possible_values']:
                 possible_values = json_options_lookup[option_name]['possible_values']
                 optimize_option_with_values(current_options_dict, option_name, repo_path, root_options_dict, possible_values)
             else:
                 # If no possible values from JSON, keep the default value
                 if DEBUG:
-                     print(f"Skipping optimization for '{option_name}' (type: {option_info['type']}). No possible values provided in JSON.", file=sys.stderr)
+                     print(f"Skipping optimization for '{option_name}' (type: {option_info['type']}). No possible values provided in JSON for optimization.", file=sys.stderr)
+
+
+def find_options_without_json_values(current_options_dict, json_options_lookup, missing_list):
+    """
+    Recursively finds options in the dump-config structure that are not in the
+    JSON lookup or have no possible values listed.
+
+    Args:
+        current_options_dict (dict): The dictionary currently being processed.
+        json_options_lookup (dict): The flat dictionary from the JSON file.
+        missing_list (list): The list to append missing option names to.
+    """
+    if not isinstance(current_options_dict, dict):
+        return # Stop recursion if not a dictionary
+
+    for option_name, option_info in current_options_dict.items():
+        if option_info['type'] == 'dict':
+            # Recurse into nested dictionary
+            find_options_without_json_values(option_info['value'], json_options_lookup, missing_list)
+        else:
+            # Check if the option is in the JSON lookup and has possible values
+            if option_name not in json_options_lookup or not json_options_lookup[option_name]['possible_values']:
+                missing_list.append(option_name)
 
 
 def main():
@@ -495,6 +519,20 @@ def main():
         except Exception as e:
             print(f"Error reading option values JSON file '{args.option_values_json_file}': {e}", file=sys.stderr)
             exit(1)
+
+    # Identify options missing from JSON or without possible values
+    missing_options = []
+    find_options_without_json_values(options_info, json_options_lookup, missing_options)
+
+    if missing_options:
+        print("\nThe following options were found in clang-format --dump-config but were not present in the provided JSON file or had no possible values listed:", file=sys.stderr)
+        for opt in missing_options:
+            print(f"- {opt}", file=sys.stderr)
+        print("These options will retain their default values from --dump-config unless specified in FORCED_OPTIONS.", file=sys.stderr)
+    elif args.option_values_json_file:
+         print("\nAll options found in clang-format --dump-config were present in the provided JSON file with possible values.", file=sys.stderr)
+    else:
+         print("\nNo JSON file with option values was provided. All options will retain their default values from --dump-config unless specified in FORCED_OPTIONS.", file=sys.stderr)
 
 
     # Create a working copy of options to optimize
