@@ -135,7 +135,7 @@ def run_clang_format_and_count_changes(repo_path, config_string):
 
     Returns:
         int: The total number of lines added or deleted by clang-format.
-             Returns -1 if an error occurs.
+             Returns -1 if an error occurs during clang-format execution or git diff.
     """
     original_cwd = os.getcwd()
     # Ensure we are in the repo directory for git commands
@@ -170,14 +170,21 @@ def run_clang_format_and_count_changes(repo_path, config_string):
         # clang-format expects paths relative to the current directory, which is repo_path
         clang_format_cmd = ["clang-format", f"-style=file:{temp_config_file}", "-i"] + files_to_format
         try:
-            # check=False because it might exit non-zero on formatting errors
-            run_command(clang_format_cmd, check=False, capture_output=True, text=True) # cwd is already repo_path
+            # check=True to catch clang-format errors
+            run_command(clang_format_cmd, check=True, capture_output=True, text=True) # cwd is already repo_path
         except FileNotFoundError:
             print("Error: clang-format command not found. Please ensure it is installed and in your PATH.", file=sys.stderr)
             return -1
-        except Exception as e:
-            print(f"Error running clang-format: {e}", file=sys.stderr)
-            return -1
+        except subprocess.CalledProcessError as e:
+            # Catch specific clang-format errors and report them
+            print(f"Error running clang-format with the current configuration:", file=sys.stderr)
+            print(f"Command: {' '.join(e.cmd)}", file=sys.stderr)
+            print(f"Exit code: {e.returncode}", file=sys.stderr)
+            if e.stdout:
+                 print(f"Stdout:\n{e.stdout}", file=sys.stderr)
+            if e.stderr:
+                 print(f"Stderr:\n{e.stderr}", file=sys.stderr)
+            return -1 # Indicate failure
 
         # Count changes using git diff --shortstat from the repo directory
         git_diff_cmd = ["git", "diff", "--shortstat"]
@@ -347,7 +354,10 @@ def optimize_option_with_values(parent_dict, option_name, repo_path, root_option
                 min_changes = changes
                 best_value = value_to_test
         else:
-            print(f"    Error testing {value_to_test}.", file=sys.stderr)
+            # An error occurred in run_clang_format_and_count_changes (e.g., clang-format failed)
+            # The error message is already printed by that function.
+            # We just need to skip this value and continue with the next one.
+            pass # Error message already printed, continue loop
 
 
     # --- Decide Best Value ---
