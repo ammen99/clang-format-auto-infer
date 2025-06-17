@@ -46,6 +46,16 @@ def _signal_handler(sig, frame):
     _stop_optimization_flag = True
     if _mp_stop_event: # Check if it has been initialized
         _mp_stop_event.set()
+    
+    # Close matplotlib plots if they are open
+    global plt, MATPLOTLIB_AVAILABLE
+    if MATPLOTLIB_AVAILABLE and plt:
+        try:
+            plt.close('all')
+            print("Matplotlib plots closed.", file=sys.stderr)
+        except Exception as e:
+            print(f"Warning: Could not close matplotlib plots: {e}", file=sys.stderr)
+
     del sig, frame # Suppress unused argument warning
     print("\nCtrl-C detected. Stopping optimization gracefully...", file=sys.stderr)
 
