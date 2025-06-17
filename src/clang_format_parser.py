@@ -35,14 +35,14 @@ def get_clang_format_options(debug=False):
 
 def parse_clang_format_options(yaml_string):
     """
-    Parses the YAML output from 'clang-format --dump-config' to identify options and their types.
-    Handles nested dictionaries recursively.
+    Parses the YAML output from 'clang-format --dump-config' and flattens it.
+    Nested dictionaries are represented with dot-separated keys (e.g., "Parent.SubOption").
 
     Args:
         yaml_string (str): The YAML output string.
 
     Returns:
-        dict: A dictionary mapping option names to a dictionary containing
+        dict: A flat dictionary mapping dot-separated option names to a dictionary containing
               'type' (str: 'bool', 'int', 'str', 'list', 'dict', etc.) and
               'value' (any: the parsed value).
               Returns None if parsing fails.
@@ -53,61 +53,59 @@ def parse_clang_format_options(yaml_string):
             print("Error: Parsed clang-format config is not a dictionary.", file=sys.stderr)
             return None
 
-        # Helper function to recursively process the dictionary
-        def process_dict(data):
-            options_info = {}
+        flat_options = {}
+
+        def flatten_dict(data, current_path=""):
             if not isinstance(data, dict):
-                 # This case should ideally not happen if the top level is a dict,
-                 # but handles potential malformed nested structures.
-                 return data # Return the non-dict value as is
+                # This case should ideally not happen for the top-level config,
+                # but handles potential malformed nested structures where a dict key
+                # might map to a non-dict value unexpectedly.
+                return
 
             for key, value in data.items():
+                full_path = f"{current_path}.{key}" if current_path else key
                 value_type = type(value).__name__
                 if value_type == 'dict':
-                    # Recurse into nested dictionary
-                    options_info[key] = {'type': value_type, 'value': process_dict(value)}
+                    flatten_dict(value, full_path) # Recurse for nested dicts
                 else:
-                    # Store simple value and its type
-                    options_info[key] = {'type': value_type, 'value': value}
-            return options_info
+                    flat_options[full_path] = {'type': value_type, 'value': value}
 
-        return process_dict(config)
+        flatten_dict(config)
+        return flat_options
 
     except yaml.YAMLError as e:
         print(f"Error parsing YAML output from clang-format: {e}", file=sys.stderr)
         return None
 
-def generate_clang_format_config(options_info):
+def generate_clang_format_config(flat_options_info):
     """
-    Generates a YAML string for a .clang-format file from a dictionary of options.
-    Handles nested dictionaries recursively.
+    Generates a YAML string for a .clang-format file from a flat dictionary of options.
+    Reconstructs nested dictionaries from dot-separated names.
 
     Args:
-        options_info (dict): A dictionary mapping option names to their info dicts
-                             (containing 'type' and 'value'). Can be nested.
+        flat_options_info (dict): A flat dictionary mapping dot-separated option names
+                                  to their info dicts (containing 'type' and 'value').
 
     Returns:
         str: A YAML formatted string.
     """
-    # Helper function to recursively extract values
-    def extract_values(data):
-        if not isinstance(data, dict):
-            return data # Return the simple value
+    nested_config = {}
 
-        config_dict = {}
-        for key, info in data.items():
-            # Assuming info is a dict {'type': ..., 'value': ...}
-            if info['type'] == 'dict':
-                # Recurse into nested dictionary
-                config_dict[key] = extract_values(info['value'])
+    # Sort keys to ensure consistent output order, especially for nested structures
+    # This helps with reproducibility of the generated YAML.
+    for full_path in sorted(flat_options_info.keys()):
+        info = flat_options_info[full_path]
+        parts = full_path.split('.')
+        current_level = nested_config
+        for i, part in enumerate(parts):
+            if i == len(parts) - 1:
+                # This is the final part, assign the value
+                current_level[part] = info['value']
             else:
-                # Extract the simple value
-                config_dict[key] = info['value']
-        return config_dict
-
-    # Start extraction from the root
-    config_dict_values = extract_values(options_info)
-
-    # Dump the extracted dictionary to YAML
-    return yaml.dump(config_dict_values, default_flow_style=False, sort_keys=False)
+                # This is an intermediate part, ensure it's a dictionary
+                if part not in current_level:
+                    current_level[part] = {}
+                current_level = current_level[part]
+            
+    return yaml.dump(nested_config, default_flow_style=False, sort_keys=False)
 

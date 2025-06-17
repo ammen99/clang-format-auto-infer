@@ -6,45 +6,34 @@ import copy
 # Import functions from the new modules (relative imports within the src package)
 from src.clang_format_parser import get_clang_format_options, parse_clang_format_options, generate_clang_format_config
 from src.config_loader import load_json_option_values, load_forced_options
-from src.optimizer import optimize_options_recursively
+from src.optimizer import optimize_all_options # Changed import from optimize_options_recursively
 
 # Global debug flag (will be set from args)
 DEBUG = False
 
-def find_options_without_json_values(current_options_dict, json_options_lookup, forced_options_lookup, missing_list, current_path=""):
+def find_options_without_json_values(flat_options_info, json_options_lookup, forced_options_lookup, missing_list):
     """
-    Recursively finds options in the dump-config structure that are not in the
+    Finds options in the flat dump-config structure that are not in the
     JSON lookup or have no possible values listed (excluding booleans which are auto-tested).
     Also excludes options that are present in the forced_options_lookup.
 
     Args:
-        current_options_dict (dict): The dictionary currently being processed.
+        flat_options_info (dict): The flat dictionary from parsed dump-config.
         json_options_lookup (dict): The flat dictionary from the JSON file.
         forced_options_lookup (dict): The flat dictionary from the forced options YAML file.
         missing_list (list): The list to append missing option names to.
-        current_path (str): The dot-separated path to the current dictionary (e.g., "Parent.SubOption").
     """
-    if not isinstance(current_options_dict, dict):
-        return # Stop recursion if not a dictionary
-
-    for option_name, option_info in current_options_dict.items():
-        # Construct the full path for the current option
-        full_option_path = f"{current_path}.{option_name}" if current_path else option_name
-
-        if option_info['type'] == 'dict':
-            # Recurse into nested dictionary, passing the updated full path
-            find_options_without_json_values(option_info['value'], json_options_lookup, forced_options_lookup, missing_list, full_option_path)
-        else:
-            # Check if the option is in the JSON lookup and has possible values
-            # OR if it's a boolean (which is handled automatically)
-            # AND if it's NOT in the forced options lookup
-            if (option_name not in json_options_lookup or not json_options_lookup[option_name]['possible_values']) and \
-               (full_option_path not in forced_options_lookup): # <-- New condition here
-                # If not in JSON or no values in JSON, check if it's a boolean
-                if option_info['type'] != 'bool':
-                    # If it's not a boolean and not in JSON/no values, and not forced, add its full path to missing list
-                    missing_list.append(full_option_path)
-                # If it *is* a boolean and not in JSON/no values, it will be auto-tested, so don't add to missing list
+    for full_option_path, option_info in flat_options_info.items():
+        # Check if the option is in the JSON lookup and has possible values
+        # OR if it's a boolean (which is handled automatically)
+        # AND if it's NOT in the forced options lookup
+        if (full_option_path not in json_options_lookup or not json_options_lookup[full_option_path]['possible_values']) and \
+           (full_option_path not in forced_options_lookup):
+            # If not in JSON or no values in JSON, check if it's a boolean
+            if option_info['type'] != 'bool':
+                # If it's not a boolean and not in JSON/no values, and not forced, add its full path to missing list
+                missing_list.append(full_option_path)
+            # If it *is* a boolean and not in JSON/no values, it will be auto-tested, so don't add to missing list
 
 
 def main():
@@ -106,23 +95,25 @@ def main():
         print("\nFailed to retrieve clang-format options.", file=sys.stderr)
         exit(1)
 
+    # Parse and flatten the options
     options_info = parse_clang_format_options(options_output)
 
     if not options_info:
         print("\nFailed to parse clang-format options.", file=sys.stderr)
         exit(1)
 
-    print(f"\nSuccessfully parsed clang-format options structure.", file=sys.stderr)
+    print(f"\nSuccessfully parsed and flattened clang-format options structure.", file=sys.stderr)
 
-    # Load external configurations
+    # Load external configurations (json_options_lookup is already flat)
     json_options_lookup = load_json_option_values(args.option_values_json_file)
+    # Load and flatten forced options
     forced_options_lookup = load_forced_options(args.forced_options_yaml_file)
 
     # Identify options missing from JSON or without possible values (excluding booleans)
     # and not present in forced options
     missing_options = []
-    # Pass an empty string as the initial current_path for the root level
-    find_options_without_json_values(options_info, json_options_lookup, forced_options_lookup, missing_options, "")
+    # Pass the flat options_info directly
+    find_options_without_json_values(options_info, json_options_lookup, forced_options_lookup, missing_options)
 
     if missing_options:
         print("\nThe following options were found in clang-format --dump-config but were not present in the provided JSON file or had no possible values listed (and are not booleans or forced options):", file=sys.stderr)
@@ -136,17 +127,17 @@ def main():
 
 
     # Create a working copy of options to optimize
-    # This copy will be modified recursively by the optimization functions
+    # This copy will be modified by the optimization functions
     optimized_options_info = copy.deepcopy(options_info)
 
     print("\nStarting optimization...", file=sys.stderr)
 
-    # Start the recursive optimization process from the root
-    optimize_options_recursively(optimized_options_info, repo_path_abs, optimized_options_info, json_options_lookup, forced_options_lookup, debug=DEBUG)
+    # Start the optimization process on the flat dictionary
+    optimize_all_options(optimized_options_info, repo_path_abs, json_options_lookup, forced_options_lookup, debug=DEBUG)
 
     print("\nOptimization complete.", file=sys.stderr)
 
-    # Generate the final optimized configuration from the modified structure
+    # Generate the final optimized configuration from the modified flat structure
     optimized_config = generate_clang_format_config(optimized_options_info)
 
     # Output the final configuration
