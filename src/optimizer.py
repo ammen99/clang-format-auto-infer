@@ -486,6 +486,7 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
 
     # Keep the plot open at the end if it was generated
     if plot_fitness and MATPLOTLIB_AVAILABLE: # Check MATPLOTLIB_AVAILABLE again before final show
+        assert plt
         plt.ioff() # Turn off interactive mode
         plt.show() # Show the final plot and block until closed
 
