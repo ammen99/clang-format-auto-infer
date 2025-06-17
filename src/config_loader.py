@@ -40,13 +40,14 @@ def load_json_option_values(file_path):
 
 def load_forced_options(file_path):
     """
-    Loads forced clang-format options from a YAML file.
+    Loads forced clang-format options from a YAML file and flattens the structure.
+    Nested dictionaries are represented with dot-separated keys (e.g., "Parent.SubOption").
 
     Args:
         file_path (str): Path to the YAML file.
 
     Returns:
-        dict: A dictionary mapping option names to their forced values.
+        dict: A flat dictionary mapping dot-separated option names to their forced values.
               Returns an empty dict if file_path is None. Exits on error.
     """
     if not file_path:
@@ -58,12 +59,30 @@ def load_forced_options(file_path):
 
     try:
         with open(file_path, 'r') as f:
-            forced_options_lookup = yaml.safe_load(f)
-            if not isinstance(forced_options_lookup, dict):
+            raw_forced_options = yaml.safe_load(f)
+            if not isinstance(raw_forced_options, dict):
                  print(f"Error: YAML file '{file_path}' does not contain a dictionary.", file=sys.stderr)
                  sys.exit(1)
-        print(f"Successfully loaded forced options from '{file_path}'.", file=sys.stderr)
-        return forced_options_lookup
+        
+        flat_forced_options = {}
+
+        def flatten_dict(data, current_path=""):
+            if not isinstance(data, dict):
+                # If a non-dict value is encountered, it's the final value for the current path
+                flat_forced_options[current_path] = data
+                return
+
+            for key, value in data.items():
+                full_path = f"{current_path}.{key}" if current_path else key
+                if isinstance(value, dict):
+                    flatten_dict(value, full_path) # Recurse for nested dicts
+                else:
+                    flat_forced_options[full_path] = value
+
+        flatten_dict(raw_forced_options)
+
+        print(f"Successfully loaded and flattened forced options from '{file_path}'.", file=sys.stderr)
+        return flat_forced_options
     except yaml.YAMLError as e:
         print(f"Error parsing YAML from '{file_path}': {e}", file=sys.stderr)
         sys.exit(1)
