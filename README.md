@@ -33,7 +33,7 @@ It's recommended to use a virtual environment.
     *   `matplotlib`: (Optional) For plotting the fitness history during optimization. If not installed, plotting will be disabled.
 ## Usage ⚙️
 The optimization process involves two main steps: first, generating a JSON file with `clang-format` option values (if the one provided in the repo is not sufficient/outdated), and then running the main optimizer.
-### Step 1: Generate Clang-Format Option Values 📝
+### Step 1: (Optional) Generate Clang-Format Option Values 📝
 The `get_option_values.py` script scrapes the official `clang-format` style options documentation to create a JSON file containing all known options, their
 types, and possible enum values. This file is crucial for the optimizer to know which values to test for each option:
 
@@ -41,7 +41,7 @@ types, and possible enum values. This file is crucial for the optimizer to know 
 python3 get_option_values.py > data/clang-format-values.json
 ```
 
-### Step 2: (Optional) Define Forced Options 🔒
+### Step 2: (Optional, Recommended) Define Forced Options 🔒
 If you have certain `clang-format` options that you always want to keep at a specific value (e.g., `ColumnLimit: 120`), you can define them in a YAML file.
 Example `data/forced.yml`:
 
