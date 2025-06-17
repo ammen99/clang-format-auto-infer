@@ -4,9 +4,9 @@ import sys
 import copy
 
 # Import functions from the new modules (relative imports within the src package)
-from .clang_format_parser import get_clang_format_options, parse_clang_format_options, generate_clang_format_config
-from .config_loader import load_json_option_values, load_forced_options
-from .optimizer import optimize_options_recursively
+from .src.clang_format_parser import get_clang_format_options, parse_clang_format_options, generate_clang_format_config
+from .src.config_loader import load_json_option_values, load_forced_options
+from .src.optimizer import optimize_options_recursively
 
 # Global debug flag (will be set from args)
 DEBUG = False
