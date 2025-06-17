@@ -6,6 +6,7 @@ import yaml
 import re
 import copy
 import json
+import shutil # Import shutil for file operations
 
 # Global debug flag
 DEBUG = False
@@ -135,13 +136,16 @@ def run_clang_format_and_count_changes(repo_path, config_string):
 
     Returns:
         int: The total number of lines added or deleted by clang-format.
-             Returns -1 if an error occurs during clang-format execution or git diff.
+             Returns -1 if an error occurs during git diff or file listing.
+             Exits the script if a clang-format execution error occurs.
     """
     original_cwd = os.getcwd()
     # Ensure we are in the repo directory for git commands
     # os.chdir(repo_path) # Moved chdir into the try block for better cleanup
 
     temp_config_file = os.path.join(repo_path, ".clang-format.tmp") # Use a temp file inside the repo
+    error_config_dest = "/tmp/clang-format.yml" # Destination for error config file
+
     try:
         # Change to repo directory
         os.chdir(repo_path)
@@ -158,7 +162,7 @@ def run_clang_format_and_count_changes(repo_path, config_string):
             files_to_format = result.stdout.splitlines()
         except subprocess.CalledProcessError as e:
             print(f"Error listing files in repo: {e}", file=sys.stderr)
-            return -1
+            return -1 # Indicate failure
 
         if not files_to_format:
             if DEBUG:
@@ -174,7 +178,8 @@ def run_clang_format_and_count_changes(repo_path, config_string):
             run_command(clang_format_cmd, check=True, capture_output=True, text=True) # cwd is already repo_path
         except FileNotFoundError:
             print("Error: clang-format command not found. Please ensure it is installed and in your PATH.", file=sys.stderr)
-            return -1
+            # Cannot copy config if clang-format isn't found to even try running it
+            sys.exit(1) # Exit immediately as requested
         except subprocess.CalledProcessError as e:
             # Catch specific clang-format errors and report them
             print(f"Error running clang-format with the current configuration:", file=sys.stderr)
@@ -184,7 +189,15 @@ def run_clang_format_and_count_changes(repo_path, config_string):
                  print(f"Stdout:\n{e.stdout}", file=sys.stderr)
             if e.stderr:
                  print(f"Stderr:\n{e.stderr}", file=sys.stderr)
-            return -1 # Indicate failure
+
+            # Copy the problematic config file before exiting
+            try:
+                shutil.copyfile(temp_config_file, error_config_dest)
+                print(f"\nConfiguration causing the error copied to {error_config_dest} for inspection.", file=sys.stderr)
+            except IOError as copy_error:
+                print(f"Error copying temporary config file to {error_config_dest}: {copy_error}", file=sys.stderr)
+
+            sys.exit(1) # Exit immediately as requested
 
         # Count changes using git diff --shortstat from the repo directory
         git_diff_cmd = ["git", "diff", "--shortstat"]
@@ -217,12 +230,15 @@ def run_clang_format_and_count_changes(repo_path, config_string):
 
         except subprocess.CalledProcessError as e:
             print(f"Error running git diff: {e}", file=sys.stderr)
-            return -1
+            return -1 # Indicate failure
 
         return total_changes
 
     finally:
         # Ensure we are in the repo directory before resetting
+        # This block runs even if sys.exit() is called, but cleanup might be incomplete
+        # depending on the exact point of failure and OS.
+        # The copy happens *before* exit, so that part is guaranteed.
         if os.getcwd() != repo_path:
              # This shouldn't happen if chdir inside try works, but as a safeguard
              try:
@@ -239,11 +255,11 @@ def run_clang_format_and_count_changes(repo_path, config_string):
             run_command(git_restore_cmd, check=True, capture_output=True, text=True) # cwd is already repo_path
         except subprocess.CalledProcessError as e:
             print(f"Error resetting git repository: {e}", file=sys.stderr)
-            # Note: Returning -1 here might mask the actual clang-format change count
-            # Consider logging and proceeding, or raising an exception.
-            # For now, we'll just print the error.
+            # Note: If clang-format failed and we exited, this might not be reached.
+            # If git diff failed, this should still run.
 
         # Clean up the temporary config file
+        # This file is copied *before* exit on clang-format error, so removing it here is fine.
         if os.path.exists(temp_config_file):
             try:
                 os.remove(temp_config_file)
@@ -345,23 +361,25 @@ def optimize_option_with_values(parent_dict, option_name, repo_path, root_option
         parent_dict[option_name]['value'] = value_to_test
         config_string = generate_clang_format_config(root_options_dict)
 
+        # run_clang_format_and_count_changes will now exit on clang-format error
+        # If it returns, it means git diff or file listing failed (-1) or it succeeded (>= 0)
         changes = run_clang_format_and_count_changes(repo_path, config_string)
         # results[value_to_test] = changes # removed
 
-        if changes != -1: # Only consider successful runs
+        if changes != -1: # Only consider successful runs (>= 0 changes)
             print(f"    Changes with {value_to_test}: {changes}", file=sys.stderr)
             if changes < min_changes:
                 min_changes = changes
                 best_value = value_to_test
         else:
-            # An error occurred in run_clang_format_and_count_changes (e.g., clang-format failed)
+            # An error occurred in run_clang_format_and_count_changes (e.g., git diff failed)
             # The error message is already printed by that function.
             # We just need to skip this value and continue with the next one.
             pass # Error message already printed, continue loop
 
 
     # --- Decide Best Value ---
-    # If min_changes is still infinity, it means all tests failed
+    # If min_changes is still infinity, it means all tests failed (returned -1)
     if min_changes == float('inf'):
         print(f"  All tests failed for '{option_name}'. Keeping original value: {original_value}", file=sys.stderr)
         # Value is currently the last tested value, restore original
