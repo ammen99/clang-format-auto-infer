@@ -100,10 +100,21 @@ def parse_options(html_content):
                                         values.append(config_value_match.group(1).strip())
                                     else:
                                         # Fallback: get the text from the first code tag in the li
-                                        code_tag_value = li.find('code') # type: ignore
+                                        code_tag_value = li.find('code') # type ignore
                                         if code_tag_value:
-                                            values.append(code_tag_value.get_text().strip()) # type: ignore
+                                            values.append(code_tag_value.get_text().strip()) # type ignore
                                         # If no specific format found, maybe skip or add raw text? Let's skip for now.
+
+                    # Add sane values for Integer/Unsigned options related to Offset or Width
+                    if option_type in ['Integer', 'Unsigned']:
+                        if 'offset' in option_name.lower() or 'width' in option_name.lower():
+                            sane_int_values = [-4, -2, 0, 1, 2, 3, 4, 8]
+                            # Use a set to handle uniqueness, then convert back to a sorted list
+                            all_values_set = set(values)
+                            for val in sane_int_values:
+                                all_values_set.add(str(val))
+                            # Sort numerically if possible, otherwise alphabetically
+                            values = sorted(list(all_values_set), key=lambda x: int(x) if x.lstrip('-').isdigit() else x)
 
                     options_data[option_name] = {
                         'type': option_type,
