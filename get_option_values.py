@@ -108,11 +108,12 @@ def parse_options(html_content):
                     # Add sane values for Integer/Unsigned options related to Offset or Width
                     if option_type in ['Integer', 'Unsigned']:
                         if 'offset' in option_name.lower() or 'width' in option_name.lower():
+                            sane_int_values = []
                             if option_type == 'Integer':
                                 sane_int_values = [-4, -2, 0, 1, 2, 3, 4, 8]
                             elif option_type == 'Unsigned':
                                 sane_int_values = [0, 1, 2, 3, 4, 8]
-                            
+
                             # Use a set to handle uniqueness, then convert back to a sorted list
                             all_values_set = set(values)
                             for val in sane_int_values:

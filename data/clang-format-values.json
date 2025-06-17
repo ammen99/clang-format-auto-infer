@@ -16,7 +16,16 @@
   {
     "name": "AccessModifierOffset",
     "type": "Integer",
-    "possible_values": null
+    "possible_values": [
+      "-4",
+      "-2",
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "8"
+    ]
   },
   {
     "name": "AlignAfterOpenBracket",
@@ -305,7 +314,16 @@
   {
     "name": "BracedInitializerIndentWidth",
     "type": "Integer",
-    "possible_values": null
+    "possible_values": [
+      "-4",
+      "-2",
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "8"
+    ]
   },
   {
     "name": "BreakAdjacentStringLiterals",
@@ -494,12 +512,26 @@
   {
     "name": "ConstructorInitializerIndentWidth",
     "type": "Unsigned",
-    "possible_values": null
+    "possible_values": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "8"
+    ]
   },
   {
     "name": "ContinuationIndentWidth",
     "type": "Unsigned",
-    "possible_values": null
+    "possible_values": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "8"
+    ]
   },
   {
     "name": "Cpp11BracedListStyle",
@@ -680,7 +712,14 @@
   {
     "name": "IndentWidth",
     "type": "Unsigned",
-    "possible_values": null
+    "possible_values": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "8"
+    ]
   },
   {
     "name": "IndentWrappedFunctionNames",
@@ -861,7 +900,14 @@
   {
     "name": "ObjCBlockIndentWidth",
     "type": "Unsigned",
-    "possible_values": null
+    "possible_values": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "8"
+    ]
   },
   {
     "name": "ObjCBreakBeforeNestedBlockParam",
@@ -900,7 +946,16 @@
   {
     "name": "PPIndentWidth",
     "type": "Integer",
-    "possible_values": null
+    "possible_values": [
+      "-4",
+      "-2",
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "8"
+    ]
   },
   {
     "name": "PackConstructorInitializers",
@@ -1354,7 +1409,14 @@
   {
     "name": "TabWidth",
     "type": "Unsigned",
-    "possible_values": null
+    "possible_values": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "8"
+    ]
   },
   {
     "name": "TableGenBreakInsideDAGArg",
