@@ -73,16 +73,16 @@ space more effectively.
 
 ### Example Usage
 To optimize the `clang-format` configuration for a repository located at `/home/user/my_project`, using the generated JSON values and a forced options YAML,
-running for 50 iterations with 4 islands, and saving the output to `optimized.clang-format`:
+running for 50 iterations with 4 islands (4 individuals per island), and saving the output to `optimized.clang-format`:
 
 ```sh
-python3 -m src.main /home/user/my_project \
---option-values-json data/clang-format-values.json \
---forced-options-yaml data/forced.yml \
---iterations 50 \
---population-size 100 \
---islands 4 \
---output optimized.clang-format \
+python3 main.py /home/user/my_project
+--option-values-json data/clang-format-values.json
+--forced-options-yaml data/forced.yml
+--iterations 50
+--population-size 16
+--islands 4
+--output optimized.clang-format
 --plot-fitness
 ```
 
