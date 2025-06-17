@@ -3,8 +3,7 @@ import copy
 import random
 import signal
 import multiprocessing # New import for parallelization
-import os # Added for file operations
-from typing import List, Dict, Any # New import for type hints
+from typing import List # New import for type hints
 
 # Import formatter and config generator
 from .repo_formatter import run_clang_format_and_count_changes
