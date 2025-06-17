@@ -369,33 +369,41 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
     populations = []
     print(f"\nInitializing {num_islands} islands, each with {island_population_size} individuals (total: {total_population_size})...", file=sys.stderr)
 
-    # Initialize each island's population
+    # Create the base individual configuration and calculate its fitness once
+    base_individual_config = copy.deepcopy(base_options_info)
+    for forced_path, forced_value in forced_options_lookup.items():
+        if forced_path in base_individual_config:
+            base_individual_config[forced_path]['value'] = forced_value
+
+    print("Calculating initial base configuration fitness...", file=sys.stderr)
+    base_fitness = run_clang_format_and_count_changes(repo_path, generate_clang_format_config(base_individual_config), debug=debug)
+    print(f"Initial base configuration fitness: {base_fitness}", file=sys.stderr)
+
+    # Initialize each island's population with copies of the base individual
     for i in range(num_islands):
         island_pop = []
         for j in range(island_population_size):
             if _stop_optimization_flag: # Check flag during initialization too
                 print("Initialization interrupted.", file=sys.stderr)
                 break
-            individual_config = copy.deepcopy(base_options_info)
-            # Apply forced options to initial individuals
-            for forced_path, forced_value in forced_options_lookup.items():
-                if forced_path in individual_config:
-                    individual_config[forced_path]['value'] = forced_value
-
-            fitness = run_clang_format_and_count_changes(repo_path, generate_clang_format_config(individual_config), debug=debug)
-            island_pop.append({'config': individual_config, 'fitness': fitness})
-            print(f"  Island {i+1}, Individual {j+1}/{island_population_size} initialized with fitness: {fitness}", file=sys.stderr)
+            # All initial individuals are identical to the base config
+            individual_config = copy.deepcopy(base_individual_config)
+            island_pop.append({'config': individual_config, 'fitness': base_fitness})
+            # No need to print fitness for each, as it's the same
         populations.append(island_pop)
         if _stop_optimization_flag:
             break # Break outer loop if initialization was interrupted
 
-    # Find the best individual in the initial overall population
-    all_individuals = [ind for island_pop in populations for ind in island_pop]
-    best_overall_individual = min(all_individuals, key=lambda x: x['fitness']) if all_individuals else {'config': {}, 'fitness': float('inf')}
+    # Find the best individual in the initial overall population (which is just the base_fitness)
+    best_overall_individual = {'config': base_individual_config, 'fitness': base_fitness}
     print(f"\nInitial overall best fitness: {best_overall_individual['fitness']}", file=sys.stderr)
 
     # Data structure to store best fitness for each island over time
     fitness_history_per_island = [[] for _ in range(num_islands)]
+    # Populate initial fitness history for plotting
+    for i in range(num_islands):
+        fitness_history_per_island[i].append(base_fitness)
+
 
     # Initialize plot variables to None/empty list
     fig = None
