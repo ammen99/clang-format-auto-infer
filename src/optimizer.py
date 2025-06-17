@@ -7,7 +7,8 @@ import signal
 from .repo_formatter import run_clang_format_and_count_changes
 from .clang_format_parser import generate_clang_format_config
 
-# Try to import matplotlib, provide a fallback if not available
+# Initialize plt to None to prevent UnboundLocalError warnings from static analyzers
+plt = None
 try:
     import matplotlib.pyplot as plt
     MATPLOTLIB_AVAILABLE = True
