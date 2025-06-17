@@ -2,7 +2,7 @@ import subprocess
 import sys
 import os
 
-def run_command(cmd, capture_output=False, text=False, check=False, cwd=None, debug=False):
+def run_command(cmd, capture_output=False, text=False, check=False, cwd=None, debug=False, timeout=None):
     """
     Runs a subprocess command and optionally prints it if debug is enabled.
 
@@ -13,6 +13,7 @@ def run_command(cmd, capture_output=False, text=False, check=False, cwd=None, de
         check (bool): If True, raise CalledProcessError on non-zero exit code.
         cwd (str, optional): The working directory for the command.
         debug (bool): If True, print the command being executed.
+        timeout (int, optional): If set, the command will be killed if it runs longer than timeout seconds.
 
     Returns:
         subprocess.CompletedProcess: The result of the subprocess run.
@@ -20,7 +21,8 @@ def run_command(cmd, capture_output=False, text=False, check=False, cwd=None, de
     if debug:
         cmd_str = ' '.join(cmd)
         cwd_str = f" (cwd: {cwd})" if cwd else ""
-        print(f"Executing command: {cmd_str}{cwd_str}", file=sys.stderr)
+        timeout_str = f" (timeout: {timeout}s)" if timeout else ""
+        print(f"Executing command: {cmd_str}{cwd_str}{timeout_str}", file=sys.stderr)
 
     try:
         result = subprocess.run(
@@ -28,7 +30,8 @@ def run_command(cmd, capture_output=False, text=False, check=False, cwd=None, de
             capture_output=capture_output,
             text=text,
             check=check,
-            cwd=cwd
+            cwd=cwd,
+            timeout=timeout # Pass timeout here
         )
         if debug and capture_output:
              print(f"Command stdout:\n{result.stdout}", file=sys.stderr)
@@ -37,6 +40,12 @@ def run_command(cmd, capture_output=False, text=False, check=False, cwd=None, de
     except FileNotFoundError:
         print(f"Error: Command not found: {cmd[0]}", file=sys.stderr)
         raise # Re-raise the exception
+    except subprocess.TimeoutExpired:
+        print(f"Error: Command '{cmd[0]}' timed out after {timeout} seconds.", file=sys.stderr)
+        # The process is killed by subprocess.run, but we might want to clean up
+        # or re-raise a specific exception for the caller to handle.
+        # For now, re-raise to be caught by the caller (e.g., repo_formatter).
+        raise
     except subprocess.CalledProcessError as e:
         if debug:
              print(f"Command failed with exit code {e.returncode}", file=sys.stderr)

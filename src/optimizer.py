@@ -521,6 +521,7 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
 
     # Migration interval (e.g., migrate every 10 generations)
     MIGRATION_INTERVAL = 15
+    POOL_JOIN_TIMEOUT = 5 # seconds to wait for pool workers to join gracefully
 
     # Create the multiprocessing pool
     # The number of processes in the pool is limited by the number of available repo copies
@@ -601,7 +602,12 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
 
     finally:
         pool.close() # Prevent new tasks from being submitted
-        pool.join()  # Wait for all current tasks to complete
+        # Attempt to join gracefully, but terminate if it hangs
+        pool.join(timeout=POOL_JOIN_TIMEOUT)
+        if pool.is_alive():
+            print(f"Warning: Pool workers did not terminate gracefully within {POOL_JOIN_TIMEOUT} seconds. Forcing termination.", file=sys.stderr)
+            pool.terminate()
+            pool.join() # Wait for forced termination to complete
 
     print(f"\nGenetic algorithm finished. Best overall fitness: {best_overall_individual['fitness']}", file=sys.stderr)
 

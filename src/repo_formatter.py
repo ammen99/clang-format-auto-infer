@@ -6,6 +6,10 @@ import shutil
 import random # New import for file sampling
 from .utils import run_command # Import run_command from utils
 
+# Define timeouts for external commands
+CLANG_FORMAT_TIMEOUT = 120 # seconds
+GIT_COMMAND_TIMEOUT = 60 # seconds
+
 def run_clang_format_and_count_changes(repo_path, config_string, debug=False, file_sample_percentage=100.0, random_seed=None):
     """
     Runs a clang-format configuration on a repository, counts changes, and resets.
@@ -22,7 +26,7 @@ def run_clang_format_and_count_changes(repo_path, config_string, debug=False, fi
     Returns:
         int or float('inf'): The total number of lines added or deleted by clang-format (>= 0).
                              Returns float('inf') if clang-format reports an invalid configuration
-                             (e.g., "cannot be used with").
+                             (e.g., "cannot be used with") or if it times out.
                              Returns -1 if a non-clang-format error occurs (like git diff or file listing).
                              Exits the script if a different type of clang-format execution error occurs.
     """
@@ -45,9 +49,9 @@ def run_clang_format_and_count_changes(repo_path, config_string, debug=False, fi
         # Use git ls-files to only format tracked files
         git_ls_files_cmd = ["git", "ls-files", "--", "*.c", "*.cc", "*.cpp", "*.cxx", "*.h", "*.hh", "*.hpp", "*.hxx", "*.m", "*.mm"]
         try:
-            result = run_command(git_ls_files_cmd, capture_output=True, text=True, check=True, debug=debug) # cwd is already repo_path
+            result = run_command(git_ls_files_cmd, capture_output=True, text=True, check=True, debug=debug, timeout=GIT_COMMAND_TIMEOUT) # cwd is already repo_path
             files_to_format = result.stdout.splitlines()
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             print(f"Error listing files in repo: {e}", file=sys.stderr)
             return -1 # Indicate failure
 
@@ -80,11 +84,17 @@ def run_clang_format_and_count_changes(repo_path, config_string, debug=False, fi
         clang_format_cmd = ["clang-format", f"-style=file:{temp_config_file}", "-i"] + files_to_format
         try:
             # check=True to catch clang-format errors
-            run_command(clang_format_cmd, check=True, capture_output=True, text=True, debug=debug) # cwd is already repo_path
+            run_command(clang_format_cmd, check=True, capture_output=True, text=True, debug=debug, timeout=CLANG_FORMAT_TIMEOUT) # cwd is already repo_path
         except FileNotFoundError:
             print("Error: clang-format command not found. Please ensure it is installed and in your PATH.", file=sys.stderr)
             # Cannot copy config if clang-format isn't found to even try running it
             sys.exit(1) # Exit immediately as requested
+        except subprocess.TimeoutExpired as e:
+            print(f"Warning: clang-format command timed out. Treating as high cost.", file=sys.stderr)
+            if debug:
+                print(f"Command: {' '.join(e.cmd)}", file=sys.stderr)
+                print(f"Timeout: {e.timeout}s", file=sys.stderr)
+            return float('inf') # Return infinity to signify a very bad configuration
         except subprocess.CalledProcessError as e:
             # Catch specific clang-format errors and report them
             error_output = (e.stdout or "") + (e.stderr or "") # Combine stdout and stderr for checking
@@ -121,7 +131,7 @@ def run_clang_format_and_count_changes(repo_path, config_string, debug=False, fi
         # Count changes using git diff --shortstat from the repo directory
         git_diff_cmd = ["git", "diff", "--shortstat"]
         try:
-            result = run_command(git_diff_cmd, capture_output=True, text=True, check=True, debug=debug) # cwd is already repo_path
+            result = run_command(git_diff_cmd, capture_output=True, text=True, check=True, debug=debug, timeout=GIT_COMMAND_TIMEOUT) # cwd is already repo_path
             diff_output = result.stdout.strip()
 
             # Parse the output, e.g., " 1 file changed, 2 insertions(+), 2 deletions(-)"
@@ -147,7 +157,7 @@ def run_clang_format_and_count_changes(repo_path, config_string, debug=False, fi
                  total_changes = 0
 
 
-        except subprocess.CalledProcessError as e:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             print(f"Error running git diff: {e}", file=sys.stderr)
             return -1 # Indicate failure
 
@@ -171,8 +181,8 @@ def run_clang_format_and_count_changes(repo_path, config_string, debug=False, fi
         # Reset the repository changes
         git_restore_cmd = ["git", "restore", "."]
         try:
-            run_command(git_restore_cmd, check=True, capture_output=True, text=True, debug=debug) # cwd is already repo_path
-        except subprocess.CalledProcessError as e:
+            run_command(git_restore_cmd, check=True, capture_output=True, text=True, debug=debug, timeout=GIT_COMMAND_TIMEOUT) # cwd is already repo_path
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             print(f"Error resetting git repository: {e}", file=sys.stderr)
             # Note: If clang-format failed and we exited, this might not be reached.
             # If git diff failed, this should still run.
