@@ -2,13 +2,13 @@ import sys
 import copy
 import random
 import signal
-import multiprocessing # New import for parallelization
-from typing import List # New import for type hints
+import multiprocessing
+from typing import List
 
 # Import formatter and config generator
 from .repo_formatter import run_clang_format_and_count_changes
 from .clang_format_parser import generate_clang_format_config
-from .data_classes import OptimizationConfig, GeneticAlgorithmLookups, IslandEvolutionArgs # New import for data classes
+from .data_classes import OptimizationConfig, GeneticAlgorithmLookups, IslandEvolutionArgs
 
 # Initialize plt to None to prevent UnboundLocalError warnings from static analyzers
 plt = None
@@ -521,7 +521,6 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
 
     # Migration interval (e.g., migrate every 10 generations)
     MIGRATION_INTERVAL = 15
-    POOL_JOIN_TIMEOUT = 5 # seconds to wait for pool workers to join gracefully
 
     # Create the multiprocessing pool
     # The number of processes in the pool is limited by the number of available repo copies
@@ -602,12 +601,11 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
 
     finally:
         pool.close() # Prevent new tasks from being submitted
-        # Attempt to join gracefully, but terminate if it hangs
-        pool.join(timeout=POOL_JOIN_TIMEOUT)
-        if pool.is_alive():
-            print(f"Warning: Pool workers did not terminate gracefully within {POOL_JOIN_TIMEOUT} seconds. Forcing termination.", file=sys.stderr)
-            pool.terminate()
-            pool.join() # Wait for forced termination to complete
+        pool.join() # Wait for all tasks to complete and workers to exit.
+                    # Note: multiprocessing.Pool.join() does not have a timeout parameter.
+                    # If workers can hang indefinitely, a more complex shutdown with
+                    # a separate timer and pool.terminate() might be needed.
+                    # For now, we rely on workers eventually exiting.
 
     print(f"\nGenetic algorithm finished. Best overall fitness: {best_overall_individual['fitness']}", file=sys.stderr)
 
