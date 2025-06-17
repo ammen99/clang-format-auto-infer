@@ -3,7 +3,7 @@ import os
 import sys
 import copy
 
-# Import functions from the new modules
+# Import functions from the new modules (relative imports within the src package)
 from .clang_format_parser import get_clang_format_options, parse_clang_format_options, generate_clang_format_config
 from .config_loader import load_json_option_values, load_forced_options
 from .optimizer import optimize_options_recursively
@@ -155,4 +155,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # Note: To run this main script after moving, you should typically run it
+    # as a module from the directory *above* src, like:
+    # python -m src.main /path/to/repo
     main()
