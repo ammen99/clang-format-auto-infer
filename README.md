@@ -1,23 +1,23 @@
-# Clang-Format Optimizer
+# Clang-Format Optimizer 🚀
 This project provides a tool for quickly configuring `clang-format` to match the style of an existing codebase. In other words, it aims to find a `.clang-format` configuration that minimizes the number of changes (insertions + deletions) when applied to the codebase, thereby reducing
 formatting churn and improving code consistency.
 
 ## Features
-*   **Genetic Algorithm Optimization**: Employs a genetic algorithm with an island model to explore a wide range of `clang-format` options and find an optimal configuration.
-*   **Automatic Detection of `clang-format` Options**: Includes a tool to parse the latest `clang-format` documentation from the web and extracts information about available options. The result is stored in a human-readable JSON file which can be further tweaked to exclude certain options from the optimization process. Options extracted from clang-format 20 can be found in `data/clang-format-values.json`.
-*   **Forced Options**: Allows users to specify certain `clang-format` options that should always be set to a particular value, overriding the optimization process for those specific options. See `data/forced.yml` as an example of the options you would typically configure by hand.
-*   **Change Minimization**: The fitness function for the genetic algorithm is based on minimizing the `git diff --shortstat` output (total insertions and
+*   **Genetic Algorithm Optimization** 🧬: Employs a genetic algorithm with an island model to explore a wide range of `clang-format` options and find an optimal configuration.
+*   **Automatic Detection of `clang-format` Options** 🔍: Includes a tool to parse the latest `clang-format` documentation from the web and extracts information about available options. The result is stored in a human-readable JSON file which can be further tweaked to exclude certain options from the optimization process. Options extracted from clang-format 20 can be found in `data/clang-format-values.json`.
+*   **Forced Options** 🔒: Allows users to specify certain `clang-format` options that should always be set to a particular value, overriding the optimization process for those specific options. See `data/forced.yml` as an example of the options you would typically configure by hand.
+*   **Change Minimization** 📊: The fitness function for the genetic algorithm is based on minimizing the `git diff --shortstat` output (total insertions and
 deletions) after applying `clang-format`.
-*   **Interactive Plotting**: Optionally visualizes the fitness evolution of the genetic algorithm using `matplotlib` (use `--plot-fitness` to enable).
-*   **Graceful Termination**: Supports `Ctrl-C` to gracefully stop the optimization process and return the best configuration found so far.
+*   **Interactive Plotting** 📈: Optionally visualizes the fitness evolution of the genetic algorithm using `matplotlib` (use `--plot-fitness` to enable).
+*   **Graceful Termination** 🛑: Supports `Ctrl-C` to gracefully stop the optimization process and return the best configuration found so far.
 ## Installation
-### Prerequisites
+### Prerequisites 🛠️
 Before you begin, ensure you have the following installed and available in your system's PATH:
-*   **Python 3.x**: The project is developed in Python.
+*   **Python 3.x** 🐍: The project is developed in Python.
 *   **clang-format**: The `clang-format` tool itself, which is part of the LLVM project. You can usually install it via your system's package manager (e.g.,
 `sudo apt install clang-format` on Ubuntu, `brew install llvm` on macOS).
 *   **Git**: The version control system, used for repository operations and diffing.
-### Python Dependencies
+### Python Dependencies 📦
 It's recommended to use a virtual environment.
 1.  **Create a virtual environment (optional but recommended):**
     ```bash
@@ -31,9 +31,9 @@ It's recommended to use a virtual environment.
     *   `PyYAML`: For parsing and generating YAML configurations.
     *   `requests`, `beautifulsoup4`, `lxml`: For scraping `clang-format` documentation to get option values.
     *   `matplotlib`: (Optional) For plotting the fitness history during optimization. If not installed, plotting will be disabled.
-## Usage
+## Usage ⚙️
 The optimization process involves two main steps: first, generating a JSON file with `clang-format` option values (if the one provided in the repo is not sufficient/outdated), and then running the main optimizer.
-### Step 1: Generate Clang-Format Option Values
+### Step 1: Generate Clang-Format Option Values 📝
 The `get_option_values.py` script scrapes the official `clang-format` style options documentation to create a JSON file containing all known options, their
 types, and possible enum values. This file is crucial for the optimizer to know which values to test for each option:
 
@@ -41,7 +41,7 @@ types, and possible enum values. This file is crucial for the optimizer to know 
 python3 get_option_values.py > data/clang-format-values.json
 ```
 
-### Step 2: (Optional) Define Forced Options
+### Step 2: (Optional) Define Forced Options 🔒
 If you have certain `clang-format` options that you always want to keep at a specific value (e.g., `ColumnLimit: 120`), you can define them in a YAML file.
 Example `data/forced.yml`:
 
@@ -50,7 +50,7 @@ IndentWidth: 4
 UseTab: Never
 ```
 
-### Step 3: Run the Optimizer
+### Step 3: Run the Optimizer 🚀
 The `main.py` script is the core of the optimizer. It takes your repository path and the generated option values file as input, then runs the genetic algorithm.
 
 ```sh
@@ -86,8 +86,8 @@ python3 -m src.main /home/user/my_project \
 --plot-fitness
 ```
 
-## Contributing
+## Contributing 👋
 Contributions are welcome! Please feel free to open issues or pull requests.
 
-## License
+## License 📄
 This project is licensed under the terms specified in the `LICENSE` file.
