@@ -5,14 +5,7 @@ import random
 # Import formatter and config generator
 from .repo_formatter import run_clang_format_and_count_changes
 from .clang_format_parser import generate_clang_format_config
-
-# Try to import matplotlib, provide a fallback if not available
-try:
-    import matplotlib.pyplot as plt
-    MATPLOTLIB_AVAILABLE = True
-except ImportError:
-    print("Warning: matplotlib not found. Fitness plotting will be disabled. Install with 'pip install matplotlib' to enable.", file=sys.stderr)
-    MATPLOTLIB_AVAILABLE = False
+import matplotlib.pyplot as plt
 
 def optimize_option_with_values(flat_options_info, full_option_path, repo_path, possible_values, debug=False):
     """
@@ -358,7 +351,8 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
     fitness_history_per_island = [[] for _ in range(num_islands)]
 
     # Setup plot if requested and matplotlib is available
-    if plot_fitness and MATPLOTLIB_AVAILABLE:
+    if plot_fitness:
+        assert plt is not None
         plt.ion() # Turn on interactive mode
         fig, ax = plt.subplots(figsize=(10, 6))
         ax.set_title("Best Fitness Over Generations for Each Island")
@@ -371,13 +365,16 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
         fig.canvas.draw()
         fig.canvas.flush_events()
         plt.pause(0.01) # Give time for plot to render
-    elif plot_fitness and not MATPLOTLIB_AVAILABLE:
+    else:
+        lines = []
+        ax = None
+        fig = None
         print("Plotting requested but matplotlib is not available. Skipping plot.", file=sys.stderr)
         plot_fitness = False # Disable plotting for the rest of the function
 
 
     # Migration interval (e.g., migrate every 10 generations)
-    MIGRATION_INTERVAL = 10
+    MIGRATION_INTERVAL = 25
 
     # Evolution Loop
     for iteration in range(num_iterations):
@@ -402,6 +399,8 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
 
         # Update plot after all islands have evolved in this iteration
         if plot_fitness:
+            assert ax
+            assert fig
             for i, history in enumerate(fitness_history_per_island):
                 lines[i].set_data(range(len(history)), history)
             ax.relim() # Recalculate limits
@@ -414,7 +413,7 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
         if num_islands > 1 and (iteration + 1) % MIGRATION_INTERVAL == 0:
             print(f"\n--- Performing migration at iteration {iteration + 1} ---", file=sys.stderr)
             _perform_migration(populations, debug)
-            
+
             # After migration, re-find the overall best individual from the updated populations
             all_individuals_after_migration = [ind for island_pop in populations for ind in island_pop]
             if all_individuals_after_migration:
@@ -429,7 +428,7 @@ def genetic_optimize_all_options(base_options_info, repo_path, json_options_look
 
 
     print(f"\nGenetic algorithm finished. Best overall fitness: {best_overall_individual['fitness']}", file=sys.stderr)
-    
+
     # Keep the plot open at the end if it was generated
     if plot_fitness:
         plt.ioff() # Turn off interactive mode
