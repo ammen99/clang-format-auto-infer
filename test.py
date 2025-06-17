@@ -82,65 +82,64 @@ def main():
         total_options_tested = 0
         total_options_skipped = 0
 
-        # Iterate through each option from the JSON lookup
-        # Sort keys for consistent test order
-        for option_name in sorted(json_options_lookup.keys()):
-            json_info = json_options_lookup[option_name]
+        # --- Specific option to test ---
+        option_to_test = "DerivePointerAlignment"
 
-            if option_name in forced_options_lookup:
-                print(f"\nSkipping forced option: {option_name}", file=sys.stderr)
-                total_options_skipped += 1
-                continue
+        if option_to_test not in json_options_lookup:
+            print(f"Error: Option '{option_to_test}' not found in the JSON option values file. Exiting.", file=sys.stderr)
+            sys.exit(1)
 
-            # Ensure the option exists in the base dump-config before proceeding
-            if option_name not in base_options_info:
-                print(f"\nSkipping option '{option_name}': Not found in clang-format --dump-config output.", file=sys.stderr)
-                total_options_skipped += 1
-                continue
+        option_name = option_to_test
+        json_info = json_options_lookup[option_name]
 
+        if option_name in forced_options_lookup:
+            print(f"\nSkipping forced option: {option_name}", file=sys.stderr)
+            total_options_skipped += 1
+        elif option_name not in base_options_info:
+            print(f"\nSkipping option '{option_name}': Not found in clang-format --dump-config output.", file=sys.stderr)
+            total_options_skipped += 1
+        else:
             possible_values = json_info['possible_values']
-            # If no possible values are explicitly listed in JSON, check if it's a boolean
             if not possible_values:
                 if base_options_info.get(option_name, {}).get('type') == 'bool':
                     possible_values = [True, False]
                 else:
                     print(f"\nSkipping option '{option_name}': No possible values defined in JSON and not a boolean.", file=sys.stderr)
                     total_options_skipped += 1
-                    continue
+            else:
+                print(f"\n--- Testing option: {option_name} (Type: {json_info['type']}) ---", file=sys.stderr)
+                print(f"  Possible values to test: {possible_values}", file=sys.stderr)
 
-            print(f"\n--- Testing option: {option_name} (Type: {json_info['type']}) ---", file=sys.stderr)
-            print(f"  Possible values to test: {possible_values}", file=sys.stderr)
+                # Create a fresh deep copy of base_options_info for each option being tested
+                # This ensures that each option's test starts from a clean slate of default values.
+                test_options_config = copy.deepcopy(base_options_info)
 
-            # Create a fresh deep copy of base_options_info for each option being tested
-            # This ensures that each option's test starts from a clean slate of default values.
-            test_options_config = copy.deepcopy(base_options_info)
+                original_value = test_options_config[option_name]['value']
+                print(f"  Original value from dump-config: {original_value}", file=sys.stderr)
 
-            original_value = test_options_config[option_name]['value']
-            print(f"  Original value from dump-config: {original_value}", file=sys.stderr)
+                # Call optimize_option_with_values to find the best value for this single option.
+                # This function modifies `test_options_config` in place.
+                # It also prints its own progress and results for each value it tests.
+                optimize_option_with_values(
+                    test_options_config,
+                    option_name,
+                    test_repo_path,
+                    possible_values,
+                    debug=True # Enable debug output for detailed logs
+                )
 
-            # Call optimize_option_with_values to find the best value for this single option.
-            # This function modifies `test_options_config` in place.
-            # It also prints its own progress and results for each value it tests.
-            optimize_option_with_values(
-                test_options_config,
-                option_name,
-                test_repo_path,
-                possible_values,
-                debug=True # Enable debug output for detailed logs
-            )
+                # After optimize_option_with_values completes, `test_options_config` holds the
+                # configuration with the 'best' value found for `option_name`.
+                # We can now evaluate the fitness of this resulting configuration.
+                final_value_after_optimization = test_options_config[option_name]['value']
+                final_config_string = generate_clang_format_config(test_options_config)
+                final_changes = run_clang_format_and_count_changes(test_repo_path, final_config_string, debug=True)
 
-            # After optimize_option_with_values completes, `test_options_config` holds the
-            # configuration with the 'best' value found for `option_name`.
-            # We can now evaluate the fitness of this resulting configuration.
-            final_value_after_optimization = test_options_config[option_name]['value']
-            final_config_string = generate_clang_format_config(test_options_config)
-            final_changes = run_clang_format_and_count_changes(test_repo_path, final_config_string, debug=True)
-
-            print(f"  Summary for '{option_name}':", file=sys.stderr)
-            print(f"    Original value: {original_value}", file=sys.stderr)
-            print(f"    Optimized value found: {final_value_after_optimization}", file=sys.stderr)
-            print(f"    Final changes with optimized value: {final_changes}", file=sys.stderr)
-            total_options_tested += 1
+                print(f"  Summary for '{option_name}':", file=sys.stderr)
+                print(f"    Original value: {original_value}", file=sys.stderr)
+                print(f"    Optimized value found: {final_value_after_optimization}", file=sys.stderr)
+                print(f"    Final changes with optimized value: {final_changes}", file=sys.stderr)
+                total_options_tested += 1
 
         print(f"\n--- Individual option value tests complete ---", file=sys.stderr)
         print(f"Total options tested: {total_options_tested}", file=sys.stderr)
