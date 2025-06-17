@@ -31,28 +31,51 @@ def parse_options(html_content):
         print("Could not find the 'Configurable Format Style Options' section.", file=sys.stderr)
         return options_data # Return empty if section not found
 
-    # Iterate through the definition list items (dt/dd pairs) following the heading
+    # Find the first definition list (<dl>) after the heading
     current_element = options_section_heading.find_next_sibling()
-
+    first_dl = None
     while current_element:
-        # Look for <dt> tags which contain the option name and type
-        if current_element.name == 'dt':
-            dt_tag = current_element
-            dd_tag = dt_tag.find_next_sibling('dd')
+        if current_element.name == 'dl':
+            first_dl = current_element
+            break
+        # Stop if we hit the next major section heading (h2) before finding a dl
+        if current_element.name == 'h2':
+             break
+        current_element = current_element.find_next_sibling()
 
-            if dd_tag:
+    if not first_dl:
+        print("Could not find the start of the options list (<dl> tag) after the heading.", file=sys.stderr)
+        return options_data
+
+    # Iterate through the definition list items (<dl> tags) starting from the first one found
+    current_dl = first_dl
+    while current_dl:
+        # Process the current <dl> tag if it's a definition list
+        if current_dl.name == 'dl':
+            dt_tag = current_dl.find('dt')
+            dd_tag = current_dl.find('dd')
+
+            if dt_tag and dd_tag:
                 option_name = None
                 option_type = None
 
-                # Extract option name from strong tag
+                # Extract option name from strong tag within dt
                 strong_tag = dt_tag.find('strong')
                 if strong_tag:
                     option_name = strong_tag.get_text().strip()
 
-                # Extract option type from code tag within dt
-                code_tag_type = dt_tag.find('code')
-                if code_tag_type:
-                    option_type = code_tag_type.get_text().strip()
+                # Extract option type from code tag within dt, usually right after strong
+                if strong_tag:
+                    next_sibling = strong_tag.next_sibling
+                    while next_sibling:
+                        if next_sibling.name == 'code':
+                            option_type = next_sibling.get_text().strip()
+                            break
+                        # Stop if we hit another tag that's not just whitespace/text
+                        if hasattr(next_sibling, 'name') and next_sibling.name is not None:
+                             break
+                        next_sibling = next_sibling.next_sibling
+
 
                 if option_name and option_type:
                     values = []
@@ -77,16 +100,19 @@ def parse_options(html_content):
                                          values.append(code_tag_value.get_text().strip())
                                     # If no specific format found, maybe skip or add raw text? Let's skip for now.
 
-
                     options_data[option_name] = {
                         'type': option_type,
                         'possible_values': values if values else None # Store None if no specific values listed
                     }
+                elif option_name:
+                     # Handle cases where type might not be found
+                     print(f"Warning: Could not parse type for option '{option_name}'", file=sys.stderr)
+
 
         # Move to the next sibling element
-        current_element = current_element.find_next_sibling()
+        current_dl = current_dl.find_next_sibling()
         # Stop if we hit the next major section heading (h2)
-        if current_element and current_element.name == 'h2':
+        if current_dl and current_dl.name == 'h2':
              break
 
 
