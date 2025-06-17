@@ -6,7 +6,7 @@ import copy
 # Import functions from the new modules (relative imports within the src package)
 from src.clang_format_parser import get_clang_format_options, parse_clang_format_options, generate_clang_format_config
 from src.config_loader import load_json_option_values, load_forced_options
-from src.optimizer import optimize_all_options # Changed import from optimize_options_recursively
+from src.optimizer import genetic_optimize_all_options # Changed import to the new GA function
 
 # Global debug flag (will be set from args)
 DEBUG = False
@@ -67,6 +67,18 @@ def main():
         action="store_true",
         help="Enable debug output (print commands being executed)."
     )
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=10,
+        help="Number of iterations (generations) for the genetic algorithm."
+    )
+    parser.add_argument(
+        "--population-size",
+        type=int,
+        default=5,
+        help="Maximum number of individuals in the genetic algorithm population."
+    )
 
     args = parser.parse_args()
 
@@ -126,14 +138,18 @@ def main():
          print("\nNo JSON file with option values was provided. All non-boolean options will retain their default values from --dump-config unless specified in the forced options YAML file. Boolean options will be tested automatically.", file=sys.stderr)
 
 
-    # Create a working copy of options to optimize
-    # This copy will be modified by the optimization functions
-    optimized_options_info = copy.deepcopy(options_info)
+    print("\nStarting genetic algorithm optimization...", file=sys.stderr)
 
-    print("\nStarting optimization...", file=sys.stderr)
-
-    # Start the optimization process on the flat dictionary
-    optimize_all_options(optimized_options_info, repo_path_abs, json_options_lookup, forced_options_lookup, debug=DEBUG)
+    # Start the genetic algorithm optimization process
+    optimized_options_info = genetic_optimize_all_options(
+        options_info, # Base configuration for population initialization
+        repo_path_abs,
+        json_options_lookup,
+        forced_options_lookup,
+        num_iterations=args.iterations,
+        max_individuals=args.population_size,
+        debug=DEBUG
+    )
 
     print("\nOptimization complete.", file=sys.stderr)
 

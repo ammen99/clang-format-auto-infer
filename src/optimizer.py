@@ -1,5 +1,6 @@
 import sys
 import copy
+import random # New import for genetic algorithm
 from .repo_formatter import run_clang_format_and_count_changes # Import formatter
 from .clang_format_parser import generate_clang_format_config # Import config generator
 
@@ -89,45 +90,149 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
         flat_options_info[full_option_path]['value'] = best_value
 
 
-def optimize_all_options(flat_options_info, repo_path, json_options_lookup, forced_options_lookup, debug=False):
+def crossover(parent1_config, parent2_config):
     """
-    Iterates through all options in a flat dictionary structure and optimizes them
-    using possible values from the JSON lookup if available.
+    Performs a uniform crossover between two parent configurations.
+    For each option, randomly picks the value from parent1 or parent2.
+    """
+    child_config = {}
+    # Assuming both parents have the same set of options and structure
+    for option_path in parent1_config.keys():
+        # Ensure we copy the dictionary for the option's info, not just reference it
+        if random.random() < 0.5:
+            child_config[option_path] = copy.deepcopy(parent1_config[option_path])
+        else:
+            child_config[option_path] = copy.deepcopy(parent2_config[option_path])
+    return child_config
+
+def mutate(individual_config, json_options_lookup, forced_options_lookup, repo_path, debug=False):
+    """
+    Mutates an individual by selecting one random mutable option and optimizing its value
+    by testing all possible values using optimize_option_with_values.
+    """
+    # Make a deep copy to avoid modifying the original individual directly before evaluation
+    mutated_config = copy.deepcopy(individual_config)
+
+    # Find mutable options (not forced, has possible values or is boolean)
+    mutable_options = []
+    for full_option_path, option_info in mutated_config.items():
+        if full_option_path in forced_options_lookup:
+            continue # Skip forced options, they are not mutable by the GA
+
+        if (full_option_path in json_options_lookup and json_options_lookup[full_option_path]['possible_values']) or \
+           (option_info['type'] == 'bool'):
+            mutable_options.append(full_option_path)
+
+    if not mutable_options:
+        if debug:
+            print("No mutable options found for mutation.", file=sys.stderr)
+        return mutated_config # No options to mutate, return original
+
+    # Select a random option to mutate
+    option_to_mutate_path = random.choice(mutable_options)
+    option_info = mutated_config[option_to_mutate_path]
+
+    possible_values = []
+    if option_to_mutate_path in json_options_lookup and json_options_lookup[option_to_mutate_path]['possible_values']:
+        possible_values = json_options_lookup[option_to_mutate_path]['possible_values']
+    elif option_info['type'] == 'bool':
+        possible_values = [True, False]
+
+    if not possible_values:
+        # This case should ideally not be reached if mutable_options logic is correct,
+        # but as a safeguard, if an option was somehow added to mutable_options without values.
+        if debug:
+            print(f"Warning: Selected option '{option_to_mutate_path}' for mutation but found no possible values.", file=sys.stderr)
+        return mutated_config
+
+    print(f"  Mutating '{option_to_mutate_path}' (current: {option_info['value']})...", file=sys.stderr)
+    # Use the existing optimize_option_with_values to find the best value for this single option.
+    # It modifies `mutated_config` in place.
+    optimize_option_with_values(mutated_config, option_to_mutate_path, repo_path, possible_values, debug=debug)
+
+    return mutated_config
+
+def genetic_optimize_all_options(base_options_info, repo_path, json_options_lookup, forced_options_lookup, num_iterations, max_individuals, debug=False):
+    """
+    Optimizes clang-format configuration using a genetic algorithm.
 
     Args:
-        flat_options_info (dict): The flat dictionary containing all options.
-                                  This dictionary is modified in place.
+        base_options_info (dict): The initial flat dictionary from clang-format --dump-config.
         repo_path (str): Path to the git repository.
         json_options_lookup (dict): A dictionary mapping option names to their info
                                     from the JSON file, used to find possible values.
         forced_options_lookup (dict): A dictionary mapping option names to forced values.
+        num_iterations (int): Number of generations for the genetic algorithm.
+        max_individuals (int): Maximum number of individuals in the population.
         debug (bool): Enable debug output.
+
+    Returns:
+        dict: The flat dictionary of the best clang-format configuration found.
     """
-    # Sort keys to ensure consistent optimization order (e.g., alphabetical)
-    # This can be important if options interact, though generally clang-format options
-    # are designed to be independent. Alphabetical is a reasonable default.
-    sorted_option_paths = sorted(flat_options_info.keys())
+    population = []
+    print(f"\nInitializing population of {max_individuals} individuals...", file=sys.stderr)
 
-    for full_option_path in sorted_option_paths:
-        option_info = flat_options_info[full_option_path]
+    # Initialize population with copies of the base config and evaluate their fitness
+    for i in range(max_individuals):
+        individual_config = copy.deepcopy(base_options_info)
+        # Apply forced options to initial individuals
+        for forced_path, forced_value in forced_options_lookup.items():
+            if forced_path in individual_config:
+                individual_config[forced_path]['value'] = forced_value
 
-        # Check if the option is in the forced list
-        if full_option_path in forced_options_lookup:
-            forced_value = forced_options_lookup[full_option_path]
-            print(f"\nSkipping optimization for '{full_option_path}'. Forcing value to: {forced_value}", file=sys.stderr)
-            flat_options_info[full_option_path]['value'] = forced_value
-            continue # Skip optimization for forced options
+        fitness = run_clang_format_and_count_changes(repo_path, generate_clang_format_config(individual_config), debug=debug)
+        population.append({'config': individual_config, 'fitness': fitness})
+        print(f"  Individual {i+1}/{max_individuals} initialized with fitness: {fitness}", file=sys.stderr)
 
-        # Check if we have possible values for this option from the JSON
-        if full_option_path in json_options_lookup and json_options_lookup[full_option_path]['possible_values']:
-            possible_values = json_options_lookup[full_option_path]['possible_values']
-            optimize_option_with_values(flat_options_info, full_option_path, repo_path, possible_values, debug=debug)
-        elif option_info['type'] == 'bool': # Check if it's a boolean from dump-config
-             # If the option is not in the JSON lookup but is a boolean, test True/False
-             print(f"\n'{full_option_path}' not found in JSON, but is boolean. Testing True/False.", file=sys.stderr)
-             optimize_option_with_values(flat_options_info, full_option_path, repo_path, [True, False], debug=debug)
-        else:
-            # If no possible values from JSON and not a boolean, keep the default value
-            if debug:
-                 print(f"Skipping optimization for '{full_option_path}' (type: {option_info['type']}). No possible values provided in JSON for optimization and not a boolean.", file=sys.stderr)
+    # Find the best individual in the initial population
+    best_overall_individual = min(population, key=lambda x: x['fitness'])
+    print(f"\nInitial best fitness: {best_overall_individual['fitness']}", file=sys.stderr)
+
+    # Evolution Loop
+    for iteration in range(num_iterations):
+        print(f"\n--- Iteration {iteration + 1}/{num_iterations} ---", file=sys.stderr)
+        new_generation_candidates = []
+
+        # Elitism: Keep the best individual from the previous generation
+        new_generation_candidates.append(best_overall_individual)
+
+        # Generate new individuals through crossover and mutation
+        # We generate (max_individuals - 1) new individuals to maintain population size
+        # if we are keeping one elite.
+        for _ in range(max_individuals - 1):
+            # Selection: Simple random selection for parents
+            parent1 = random.choice(population)['config']
+            parent2 = random.choice(population)['config']
+
+            # Crossover
+            child_config = crossover(parent1, parent2)
+
+            # Mutation: Mutate one random option in the child
+            mutated_child_config = mutate(child_config, json_options_lookup, forced_options_lookup, repo_path, debug)
+
+            # Apply forced options to the mutated child (ensure they are always respected)
+            # This is crucial because crossover might pick a non-forced value for a forced option.
+            for forced_path, forced_value in forced_options_lookup.items():
+                if forced_path in mutated_child_config:
+                    mutated_child_config[forced_path]['value'] = forced_value
+
+            # Evaluate fitness of the mutated child
+            child_fitness = run_clang_format_and_count_changes(repo_path, generate_clang_format_config(mutated_child_config), debug=debug)
+            new_generation_candidates.append({'config': mutated_child_config, 'fitness': child_fitness})
+            print(f"  Generated child with fitness: {child_fitness}", file=sys.stderr)
+
+        # Selection for next generation: Sort all candidates (current population + new children)
+        # and take the top `max_individuals` (truncation selection)
+        population = sorted(new_generation_candidates, key=lambda x: x['fitness'])[:max_individuals]
+
+        # Update overall best individual
+        current_best_in_generation = min(population, key=lambda x: x['fitness'])
+        print(f"  Best fitness in current generation: {current_best_in_generation['fitness']}", file=sys.stderr)
+
+        if current_best_in_generation['fitness'] < best_overall_individual['fitness']:
+            best_overall_individual = current_best_in_generation
+            print(f"  New overall best fitness found: {best_overall_individual['fitness']}", file=sys.stderr)
+
+    print(f"\nGenetic algorithm finished. Best overall fitness: {best_overall_individual['fitness']}", file=sys.stderr)
+    return best_overall_individual['config']
 
