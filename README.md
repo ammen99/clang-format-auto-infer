@@ -72,6 +72,7 @@ python3 main.py <repo_path> [OPTIONS]
 space more effectively.
 *   `--plot-fitness`: Visualize the best fitness score over time for each island using `matplotlib`.
 *   `-j`, `--jobs <int>`: Number of parallel jobs to run for fitness calculation (default: `1`). Each job will operate on a separate temporary copy of your repository. Increase this to utilize more CPU cores.
+*   `--start-config-file <file_path>`: Path to an existing `.clang-format` file to use as the initial configuration for optimization. If this option is not provided, the tool will start with the default configuration obtained from `clang-format --dump-config`.
 
 ### Example Usage
 To optimize the `clang-format` configuration for a repository located at `/home/user/my_project`, using the generated JSON values and a forced options YAML,
@@ -79,6 +80,21 @@ running for 50 iterations with 4 islands (4 individuals per island), and saving 
 
 ```sh
 python3 main.py /home/user/my_project \
+    --option-values-json data/clang-format-values.json \
+    --forced-options-yaml data/forced.yml \
+    --iterations 50 \
+    --population-size 16 \
+    --islands 4 \
+    --output optimized.clang-format \
+    --plot-fitness \
+    --jobs 4
+```
+
+To start optimization from an existing `.clang-format` file named `my_base_config.clang-format`:
+
+```sh
+python3 main.py /home/user/my_project \
+    --start-config-file my_base_config.clang-format \
     --option-values-json data/clang-format-values.json \
     --forced-options-yaml data/forced.yml \
     --iterations 50 \

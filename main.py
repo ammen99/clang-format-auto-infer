@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile # New import for temporary directories
 import shutil # New import for copying/removing directories
+import yaml # New import for loading YAML config files
 
 # Import functions from the new modules (relative imports within the src package)
 from src.clang_format_parser import get_clang_format_options, parse_clang_format_options, generate_clang_format_config
@@ -97,6 +98,11 @@ def main():
         default=1,
         help="Number of parallel jobs to run for fitness calculation. Each job uses a copy of the repository."
     )
+    parser.add_argument(
+        "--start-config-file",
+        dest="start_config_file",
+        help="Path to an existing .clang-format file to use as the starting configuration for optimization. If not provided, defaults from 'clang-format --dump-config' are used."
+    )
 
     args = parser.parse_args()
 
@@ -118,21 +124,44 @@ def main():
 
     print(f"Analyzing repository: {repo_path_abs}", file=sys.stderr)
 
-    # Get initial clang-format options structure
-    options_output = get_clang_format_options(debug=DEBUG)
+    options_info = None
+    if args.start_config_file:
+        print(f"\nLoading initial configuration from: {args.start_config_file}", file=sys.stderr)
+        if not os.path.exists(args.start_config_file):
+            print(f"Error: Start config file '{args.start_config_file}' not found.", file=sys.stderr)
+            exit(1)
+        try:
+            with open(args.start_config_file, 'r') as f:
+                start_config_content = f.read()
+            options_info = parse_clang_format_options(start_config_content)
+            if not options_info:
+                print(f"Error: Failed to parse YAML from '{args.start_config_file}'. Please ensure it's a valid .clang-format file.", file=sys.stderr)
+                exit(1)
+            print(f"Successfully loaded and parsed initial configuration from '{args.start_config_file}'.", file=sys.stderr)
+        except IOError as e:
+            print(f"Error reading start config file '{args.start_config_file}': {e}", file=sys.stderr)
+            exit(1)
+        except yaml.YAMLError as e:
+            print(f"Error parsing YAML from '{args.start_config_file}': {e}", file=sys.stderr)
+            exit(1)
+    else:
+        # Get initial clang-format options structure from dump-config
+        print("\nGetting initial configuration from 'clang-format --dump-config'...", file=sys.stderr)
+        options_output = get_clang_format_options(debug=DEBUG)
 
-    if not options_output:
-        print("\nFailed to retrieve clang-format options.", file=sys.stderr)
-        exit(1)
+        if not options_output:
+            print("\nFailed to retrieve clang-format options from --dump-config.", file=sys.stderr)
+            exit(1)
 
-    # Parse and flatten the options
-    options_info = parse_clang_format_options(options_output)
+        # Parse and flatten the options
+        options_info = parse_clang_format_options(options_output)
 
-    if not options_info:
-        print("\nFailed to parse clang-format options.", file=sys.stderr)
-        exit(1)
+        if not options_info:
+            print("\nFailed to parse clang-format options from --dump-config.", file=sys.stderr)
+            exit(1)
 
-    print(f"\nSuccessfully parsed and flattened clang-format options structure.", file=sys.stderr)
+        print(f"\nSuccessfully parsed and flattened clang-format options structure from --dump-config.", file=sys.stderr)
+
 
     # Load external configurations (json_options_lookup is already flat)
     json_options_lookup = load_json_option_values(args.option_values_json_file)
@@ -146,14 +175,14 @@ def main():
     find_options_without_json_values(options_info, json_options_lookup, forced_options_lookup, missing_options)
 
     if missing_options:
-        print("\nThe following options were found in clang-format --dump-config but were not present in the provided JSON file or had no possible values listed (and are not booleans or forced options):", file=sys.stderr)
+        print("\nThe following options were found in the base config but were not present in the provided JSON file or had no possible values listed (and are not booleans or forced options):", file=sys.stderr)
         for opt_path in missing_options: # opt_path now contains the full path
             print(f"- {opt_path}", file=sys.stderr)
-        print("These options will retain their default values from --dump-config unless specified in the forced options YAML file.", file=sys.stderr)
+        print("These options will retain their values from the base config unless specified in the forced options YAML file.", file=sys.stderr)
     elif args.option_values_json_file:
-         print("\nAll non-boolean options found in clang-format --dump-config were present in the provided JSON file with possible values, or were explicitly forced.", file=sys.stderr)
+         print("\nAll non-boolean options found in the base config were present in the provided JSON file with possible values, or were explicitly forced.", file=sys.stderr)
     else:
-         print("\nNo JSON file with option values was provided. All non-boolean options will retain their default values from --dump-config unless specified in the forced options YAML file. Boolean options will be tested automatically.", file=sys.stderr)
+         print("\nNo JSON file with option values was provided. All non-boolean options will retain their values from the base config unless specified in the forced options YAML file. Boolean options will be tested automatically.", file=sys.stderr)
 
 
     num_jobs = args.jobs
