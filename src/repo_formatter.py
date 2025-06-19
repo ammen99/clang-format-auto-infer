@@ -43,6 +43,8 @@ def run_clang_format_and_count_changes(config_string: str, island_args: IslandEv
         with open(temp_config_file, 'w') as tmp_file:
             tmp_file.write(config_string)
 
+        print("Written tmp file to ", temp_config_file)
+
         # Find files to format (common C/C++ extensions)
         # Use git ls-files to only format tracked files
         git_ls_files_cmd = ["git", "ls-files", "--", "*.c", "*.cc", "*.cpp", "*.cxx", "*.h", "*.hh", "*.hpp", "*.hxx", "*.m", "*.mm"]
@@ -75,7 +77,7 @@ def run_clang_format_and_count_changes(config_string: str, island_args: IslandEv
                 # Fallback if no seed is provided (less reproducible)
                 sampled_files = random.sample(files_to_format, num_files_to_sample)
             files_to_format = sampled_files
-        
+
         # Run clang-format on the files, explicitly using the temporary config file
         # We need to provide the full path to the files relative to the repo root
         # clang-format expects paths relative to the current directory, which is repo_path
