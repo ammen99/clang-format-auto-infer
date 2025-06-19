@@ -110,6 +110,15 @@ def run_clang_format_and_count_changes(config_string: str, repo_path: str, proce
                     if e.stderr: print(f"Worker {process_id}: Stderr:\n{e.stderr}", file=sys.stderr)
                 # Return infinity to signify a very bad configuration
                 return float('inf')
+            elif "PLEASE submit a bug report" in error_output:
+                # This is a clang-format crash, treat as high cost
+                print(f"Worker {process_id}: Warning: clang-format crashed with the current configuration. Treating as high cost.", file=sys.stderr)
+                if debug:
+                    print(f"Worker {process_id}: Command: {' '.join(e.cmd)}", file=sys.stderr)
+                    print(f"Worker {process_id}: Exit code: {e.returncode}", file=sys.stderr)
+                    if e.stdout: print(f"Worker {process_id}: Stdout:\n{e.stdout}", file=sys.stderr)
+                    if e.stderr: print(f"Worker {process_id}: Stderr:\n{e.stderr}", file=sys.stderr)
+                return float('inf') # Return infinity to signify a very bad configuration
             else:
                 # Other clang-format errors are critical, exit
                 print(f"Worker {process_id}: Error running clang-format with the current configuration:", file=sys.stderr)
