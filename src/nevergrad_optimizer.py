@@ -136,7 +136,7 @@ class NevergradOptimizer(BaseOptimizer):
         optimizer_name = self.config.optimizer_name
         num_workers = self.config.num_workers
         debug = self.config.debug
-        plot_fitness = self.config.plot_fitness # New: Get plot_fitness flag
+        plot_fitness = self.config.plot_fitness
 
         print(f"\nStarting Nevergrad optimization with {optimizer_name}...", file=sys.stderr)
         print(f"Budget: {budget}, Workers: {num_workers}", file=sys.stderr)
@@ -189,9 +189,9 @@ class NevergradOptimizer(BaseOptimizer):
             print(f"Error initializing Nevergrad optimizer: {e}", file=sys.stderr)
             sys.exit(1)
 
-        # 3. Run the optimization
+        # 3. Run the optimization using ask/tell loop
         executor = None
-        best_fitness_history = [] # To store best fitness over iterations
+        best_fitness_history = [] # To store best fitness over evaluations
         fig = None
         ax = None
         line = None
@@ -216,24 +216,6 @@ class NevergradOptimizer(BaseOptimizer):
             print("Plotting requested but matplotlib is not available. Skipping plot.", file=sys.stderr)
             plot_fitness = False # Disable plotting for the rest of the function
 
-        # Define the callback function for Nevergrad
-        def _nevergrad_callback(current_optimizer, candidate):
-            nonlocal best_fitness_history, fig, ax, line # Access outer scope variables
-            current_best_loss = current_optimizer.current_bests["average"].loss
-            best_fitness_history.append(current_best_loss)
-
-            if plot_fitness and MATPLOTLIB_AVAILABLE and not interrupted:
-                assert ax is not None
-                assert fig is not None
-                assert plt is not None
-                assert line is not None
-                line.set_data(range(len(best_fitness_history)), best_fitness_history)
-                ax.relim() # Recalculate limits
-                ax.autoscale_view() # Autoscale axes
-                fig.canvas.draw()
-                fig.canvas.flush_events()
-                plt.pause(0.01) # Short pause to allow plot to update
-
         try:
             # Use functools.partial to bind the static context arguments to the objective function
             objective_with_context = functools.partial(
@@ -251,26 +233,62 @@ class NevergradOptimizer(BaseOptimizer):
             executor = concurrent.futures.ProcessPoolExecutor(max_workers=num_workers)
             print(f"Nevergrad: Using ProcessPoolExecutor with {num_workers} workers.", file=sys.stderr)
 
-            recommendation = optimizer.minimize(
-                objective_with_context, # Pass the partially applied objective function
-                executor=executor, # Explicitly pass the executor for parallelization
-                callback=_nevergrad_callback # Pass the callback function
-            )
+            # Ask/Tell loop for optimization
+            for i in range(budget):
+                if debug:
+                    print(f"Nevergrad: Evaluation {i+1}/{budget}", file=sys.stderr)
+                try:
+                    # Ask for a new candidate
+                    candidate = optimizer.ask()
+
+                    # Evaluate the candidate using the executor
+                    # The objective_with_context is a partial function, so we pass kwargs directly
+                    future = executor.submit(objective_with_context, **candidate.kwargs)
+                    loss = future.result() # This will block until the evaluation is complete
+
+                    # Tell the optimizer the result
+                    optimizer.tell(candidate, loss)
+
+                    # Update plot
+                    current_best_loss = optimizer.current_bests["average"].loss
+                    best_fitness_history.append(current_best_loss)
+
+                    if plot_fitness and MATPLOTLIB_AVAILABLE and not interrupted:
+                        assert ax is not None
+                        assert fig is not None
+                        assert plt is not None
+                        assert line is not None
+                        line.set_data(range(len(best_fitness_history)), best_fitness_history)
+                        ax.relim() # Recalculate limits
+                        ax.autoscale_view() # Autoscale axes
+                        fig.canvas.draw()
+                        fig.canvas.flush_events()
+                        plt.pause(0.01) # Short pause to allow plot to update
+
+                except KeyboardInterrupt:
+                    print("\nCtrl-C detected. Terminating Nevergrad optimization immediately...", file=sys.stderr)
+                    interrupted = True
+                    break # Exit the loop
+                except Exception as e:
+                    print(f"Nevergrad: Error during evaluation {i+1}: {e}", file=sys.stderr)
+                    # Tell Nevergrad about the error with a high loss to penalize it
+                    # This prevents the optimizer from getting stuck on problematic configurations
+                    optimizer.tell(candidate, float('inf'))
+                    # Continue to the next iteration
+                    continue
+
+            recommendation = optimizer.provide_recommendation()
+
         except KeyboardInterrupt:
             print("\nCtrl-C detected. Terminating Nevergrad optimization immediately...", file=sys.stderr)
             interrupted = True
-            # Nevergrad handles graceful shutdown on KeyboardInterrupt internally
-            # We can still try to get the best recommendation found so far
-            recommendation = optimizer.provide_recommendation()
+            recommendation = optimizer.provide_recommendation() # Get best found so far
         except Exception as e:
             print(f"An error occurred during Nevergrad optimization: {e}", file=sys.stderr)
-            # Attempt to get the best recommendation found so far before exiting
             recommendation = optimizer.provide_recommendation()
-            # If no recommendation is available, return the base config
             if recommendation is None:
                 print("No recommendation available from Nevergrad. Returning base configuration.", file=sys.stderr)
                 return base_options_info
-            # Otherwise, proceed to process the partial recommendation
             print("Attempting to process the best recommendation found so far.", file=sys.stderr)
         finally:
             if executor:
@@ -293,6 +311,10 @@ class NevergradOptimizer(BaseOptimizer):
 
 
         # 4. Get the best parameters and convert back to clang-format config
+        if recommendation is None:
+            print("Warning: No recommendation provided by Nevergrad. Returning base configuration.", file=sys.stderr)
+            return base_options_info
+
         best_ng_params = recommendation.kwargs # Nevergrad returns parameters as kwargs for Instrumentation
 
         # Reconstruct the final optimized config
