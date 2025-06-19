@@ -373,11 +373,13 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
     """
     Implements the genetic algorithm optimization strategy with an island model.
     """
+    def __init__(self, config: OptimizationConfig):
+        super().__init__(config) # Call parent constructor and store config
+
     def optimize(self,
                  base_options_info: Dict[str, Any],
                  repo_paths: List[str],
                  lookups: GeneticAlgorithmLookups,
-                 config: OptimizationConfig, # Changed parameter name and type to OptimizationConfig
                  file_sample_percentage: float,
                  random_seed: int) -> Dict[str, Any]:
         """
@@ -388,20 +390,18 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
             repo_paths (list): A list of paths to the temporary git repositories for parallel processing.
             lookups (GeneticAlgorithmLookups): A dataclass containing lookup dictionaries for
                                                option values and forced options.
-            config (OptimizationConfig): A dataclass containing configuration parameters
-                                            for the genetic algorithm.
             file_sample_percentage (float): Percentage of files to sample for fitness calculation.
             random_seed (int): Seed for random file sampling.
 
         Returns:
             dict: The flat dictionary of the best clang-format configuration found.
         """
-        # Use 'config' directly, no need to rename to ga_config
-        num_iterations = config.num_iterations
-        total_population_size = config.total_population_size
-        num_islands = config.num_islands
-        debug = config.debug
-        plot_fitness = config.plot_fitness
+        # Access config from self.config
+        num_iterations = self.config.num_iterations
+        total_population_size = self.config.total_population_size
+        num_islands = self.config.num_islands
+        debug = self.config.debug
+        plot_fitness = self.config.plot_fitness
 
         if num_islands < 1:
             print("Error: Number of islands must be at least 1. Setting to 1.", file=sys.stderr)

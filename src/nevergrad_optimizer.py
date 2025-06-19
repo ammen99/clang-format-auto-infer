@@ -16,6 +16,9 @@ class NevergradOptimizer(BaseOptimizer):
     Implements the optimization strategy using Nevergrad, a black-box optimization library.
     """
 
+    def __init__(self, config: NevergradConfig):
+        super().__init__(config) # Call parent constructor and store config
+
     @staticmethod
     def _nevergrad_objective_function(
         # Contextual arguments passed by functools.partial
@@ -101,7 +104,6 @@ class NevergradOptimizer(BaseOptimizer):
                  base_options_info: Dict[str, Any],
                  repo_paths: List[str],
                  lookups: GeneticAlgorithmLookups,
-                 config: NevergradConfig,
                  file_sample_percentage: float,
                  random_seed: int,
                  ) -> Dict[str, Any]:
@@ -113,18 +115,17 @@ class NevergradOptimizer(BaseOptimizer):
             repo_paths (list): A list of paths to the temporary git repositories for parallel processing.
             lookups (GeneticAlgorithmLookups): A dataclass containing lookup dictionaries for
                                                option values and forced options.
-            config (NevergradConfig): A dataclass containing configuration parameters
-                                         for the Nevergrad algorithm.
             file_sample_percentage (float): Percentage of files to sample for fitness calculation.
             random_seed (int): Seed for random file sampling.
 
         Returns:
             dict: The flat dictionary of the best clang-format configuration found.
         """
-        budget = config.budget
-        optimizer_name = config.optimizer_name
-        num_workers = config.num_workers
-        debug = config.debug
+        # Access config from self.config
+        budget = self.config.budget
+        optimizer_name = self.config.optimizer_name
+        num_workers = self.config.num_workers
+        debug = self.config.debug
 
         print(f"\nStarting Nevergrad optimization with {optimizer_name}...", file=sys.stderr)
         print(f"Budget: {budget}, Workers: {num_workers}", file=sys.stderr)

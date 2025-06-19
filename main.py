@@ -261,12 +261,11 @@ def main():
                 debug=DEBUG,
                 plot_fitness=args.plot_fitness
             )
-            optimizer = GeneticAlgorithmOptimizer()
+            optimizer = GeneticAlgorithmOptimizer(opt_config) # Pass config to constructor
             optimized_options_info = optimizer.optimize(
                 options_info, # Base configuration for population initialization
                 temp_repo_paths, # Pass the list of temporary repo paths
                 lookups, # Pass the lookups object
-                opt_config, # Pass the GA config object
                 args.file_sample_percentage, # Pass file sampling percentage
                 RANDOM_SEED # Pass the fixed random seed
             )
@@ -278,15 +277,13 @@ def main():
                 num_workers=num_jobs, # Nevergrad uses num_workers directly
                 debug=DEBUG
             )
-            optimizer = NevergradOptimizer()
+            optimizer = NevergradOptimizer(ng_config) # Pass config to constructor
             optimized_options_info = optimizer.optimize(
                 options_info, # Base configuration for Nevergrad instrumentation
                 temp_repo_paths, # Pass the list of temporary repo paths
                 lookups, # Pass the lookups object
-                ng_config, # Pass the Nevergrad config object
                 args.file_sample_percentage, # Pass file sampling percentage
                 RANDOM_SEED # Pass the fixed random seed
-                # repo_path_counter is no longer passed
             )
         else:
             print(f"Error: Unknown optimizer '{args.optimizer}'.", file=sys.stderr)
