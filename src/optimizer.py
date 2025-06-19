@@ -3,7 +3,6 @@ import copy
 import random
 import multiprocessing
 from typing import List, Tuple
-from functools import partial # New import for partial function application
 
 # Import formatter and config generator
 from .repo_formatter import run_clang_format_and_count_changes
