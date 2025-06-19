@@ -46,8 +46,6 @@ def run_clang_format_and_count_changes(config_string: str, repo_path: str, proce
         with open(temp_config_file, 'w') as tmp_file:
             tmp_file.write(config_string)
 
-        print(f"Worker {process_id}: Written tmp file to {temp_config_file}", file=sys.stderr)
-
         # Find files to format (common C/C++ extensions)
         # Use git ls-files to only format tracked files
         git_ls_files_cmd = ["git", "ls-files", "--", "*.c", "*.cc", "*.cpp", "*.cxx", "*.h", "*.hh", "*.hpp", "*.hxx", "*.m", "*.mm"]
