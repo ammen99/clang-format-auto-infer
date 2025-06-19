@@ -171,8 +171,13 @@ class NevergradOptimizer(BaseOptimizer):
 
         # 2. Create the Nevergrad optimizer
         try:
-            # Pass 'instrumentation' as the 'parametrization' argument to the constructor
-            optimizer = ng.optimizers.registry[optimizer_name](parametrization=instrumentation, budget=budget, num_workers=num_workers)
+            # Pass 'instrumentation' as the 'parametrization' argument and 'seed' to the constructor
+            optimizer = ng.optimizers.registry[optimizer_name](
+                parametrization=instrumentation,
+                budget=budget,
+                num_workers=num_workers,
+                seed=random_seed # Pass the random_seed here
+            )
         except KeyError:
             print(f"Error: Nevergrad optimizer '{optimizer_name}' not found. Available optimizers: {list(ng.optimizers.registry.keys())}", file=sys.stderr)
             sys.exit(1)
@@ -180,9 +185,7 @@ class NevergradOptimizer(BaseOptimizer):
             print(f"Error initializing Nevergrad optimizer: {e}", file=sys.stderr)
             sys.exit(1)
 
-        # Set random seed for Nevergrad
-        if random_seed is not None:
-            optimizer.random_state.seed(random_seed)
+        # Removed: optimizer.random_state.seed(random_seed) as it's now passed in the constructor
 
         # 3. Run the optimization
         try:
