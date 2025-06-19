@@ -73,19 +73,6 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
         flat_options_info[full_option_path]['value'] = value_to_test
         config_string = generate_clang_format_config(flat_options_info) # Pass the flat dict
 
-        # --- New code to save config for specific option ---
-        if full_option_path == "DerivePointerAlignment":
-            # Convert boolean values to lowercase strings for filename
-            value_str = str(value_to_test).lower()
-            temp_config_filename = f"/tmp/clang.test.{value_str}"
-            try:
-                with open(temp_config_filename, 'w') as f:
-                    f.write(config_string)
-                print(f"  Saved config for {full_option_path}={value_to_test} to {temp_config_filename}", file=sys.stderr)
-            except IOError as e:
-                print(f"Warning: Could not save config to {temp_config_filename}: {e}", file=sys.stderr)
-        # --- End new code ---
-
         # run_clang_format_and_count_changes will now exit on critical clang-format error,
         # return float('inf') on invalid config error, or return >= 0 on success, or -1 on git error.
         changes = run_clang_format_and_count_changes(
