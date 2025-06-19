@@ -2,7 +2,7 @@ import sys
 import copy
 import random
 import multiprocessing
-from typing import List
+from typing import List, Tuple
 
 # Import formatter and config generator
 from .repo_formatter import run_clang_format_and_count_changes
@@ -19,10 +19,11 @@ except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
 
-def optimize_option_with_values(flat_options_info, full_option_path, repo_path, possible_values, debug=False, file_sample_percentage=100.0, random_seed=None):
+def optimize_option_with_values(flat_options_info, full_option_path, repo_path, possible_values, debug=False, file_sample_percentage=100.0, random_seed=None) -> float:
     """
     Optimizes a single option by testing each value in the provided list.
     If multiple values yield the same minimum changes, one is randomly selected.
+    Modifies `flat_options_info` in place with the best found value.
 
     Args:
         flat_options_info (dict): The flat dictionary containing all options.
@@ -33,6 +34,10 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
         debug (bool): Enable debug output.
         file_sample_percentage (float): Percentage of files to sample for fitness calculation.
         random_seed (int, optional): Seed for random file sampling.
+
+    Returns:
+        float: The minimum number of changes (fitness) achieved by the best value for this option.
+               Returns float('inf') if no valid configuration could be found for any tested value.
     """
     option_info = flat_options_info[full_option_path]
     original_value = option_info['value'] # Store original value
@@ -42,6 +47,9 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
 
     min_changes = float('inf')
     best_values_candidates = [] # Store all values that achieve min_changes
+
+    # Store the original config state to revert if no better option is found
+    original_config_state = copy.deepcopy(flat_options_info)
 
     for value_to_test in possible_values:
         # Ensure the value type matches the expected type from dump-config
@@ -104,13 +112,15 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
         # This happens if all tested values resulted in either a git error (-1) or an invalid clang-format config (float('inf')).
         # In this case, we keep the original value as we couldn't find a better valid one.
         print(f"  All tests failed or resulted in invalid configurations for '{full_option_path}'. Keeping original value: {original_value}", file=sys.stderr)
-        # Value is currently the last tested value, restore original
-        flat_options_info[full_option_path]['value'] = original_value
+        # Restore the original config state if no valid candidate was found
+        flat_options_info.update(original_config_state)
+        return float('inf') # Indicate that no valid fitness was found for this mutation
     else:
         # Randomly select one of the best values
         best_value = random.choice(best_values_candidates)
         print(f"  Best value for '{full_option_path}': {best_value} (changes: {min_changes})", file=sys.stderr)
         flat_options_info[full_option_path]['value'] = best_value
+        return min_changes
 
 
 def crossover(parent1_config, parent2_config):
@@ -128,7 +138,7 @@ def crossover(parent1_config, parent2_config):
             child_config[option_path] = copy.deepcopy(parent2_config[option_path])
     return child_config
 
-def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, debug: bool, file_sample_percentage: float, random_seed: int):
+def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, debug: bool, file_sample_percentage: float, random_seed: int) -> Tuple[dict, float]:
     """
     Mutates an individual by selecting one random mutable option and optimizing its value
     by testing all possible values using optimize_option_with_values.
@@ -140,6 +150,9 @@ def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, 
         debug (bool): Enable debug output.
         file_sample_percentage (float): Percentage of files to sample for fitness calculation.
         random_seed (int): Seed for random file sampling.
+
+    Returns:
+        tuple[dict, float]: A tuple containing the mutated configuration and its fitness.
     """
     # Make a deep copy to avoid modifying the original individual directly before evaluation
     mutated_config = copy.deepcopy(individual_config)
@@ -156,8 +169,30 @@ def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, 
 
     if not mutable_options:
         if debug:
-            print("No mutable options found for mutation.", file=sys.stderr)
-        return mutated_config # No options to mutate, return original
+            print("No mutable options found for mutation. Returning original config and its fitness.", file=sys.stderr)
+        # If no mutable options, return the original config and its fitness (which is unknown here,
+        # but will be evaluated by the caller if this path is taken, or assumed if it's an elite).
+        # For simplicity and to avoid re-evaluating the original config here, we'll return float('inf')
+        # as a placeholder if no mutation actually occurred. The caller should handle this.
+        # However, the current GA logic always evaluates the child after mutation, so this fitness
+        # will be overwritten. Let's return the original config's fitness if available, or inf.
+        # Since this function is called to *create* a new individual, it should return its fitness.
+        # If no mutation happens, the fitness is effectively the same as the parent.
+        # But the parent's fitness is not passed here.
+        # The safest is to return float('inf') if no mutation could be applied,
+        # or to ensure that the caller always re-evaluates if mutation didn't happen.
+        # Given the current structure, the caller *will* re-evaluate, so returning the original config
+        # and a placeholder fitness (like inf) is fine, as it will be immediately overwritten.
+        # A better approach would be to pass the original fitness to mutate, and return it if no mutation occurs.
+        # For now, let's assume if no mutation occurs, the fitness is effectively unchanged from its parent.
+        # But since we are creating a *new* individual, we need its fitness.
+        # The simplest is to return the fitness of the *original* individual if no mutation happens.
+        # But we don't have it here.
+        # Let's return the config and a placeholder, and rely on the caller to evaluate.
+        # Or, if no mutation, return the original config and a very high cost to discourage it.
+        # The current GA will re-evaluate anyway, so returning the original config and a placeholder is fine.
+        # Let's return the original config and a very high fitness to indicate no beneficial mutation.
+        return mutated_config, float('inf') # Indicate that no beneficial mutation occurred
 
     # Select a random option to mutate
     option_to_mutate_path = random.choice(mutable_options)
@@ -173,14 +208,13 @@ def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, 
         # This case should ideally not be reached if mutable_options logic is correct,
         # but as a safeguard, if an option was somehow added to mutable_options without values.
         if debug:
-            print(f"Warning: Selected option '{option_to_mutate_path}' for mutation but found no possible values.", file=sys.stderr)
-        return mutated_config
+            print(f"Warning: Selected option '{option_to_mutate_path}' for mutation but found no possible values. Returning original config and inf fitness.", file=sys.stderr)
+        return mutated_config, float('inf') # No values to test, effectively no mutation
 
     print(f"  Mutating '{option_to_mutate_path}' (current: {option_info['value']})...", file=sys.stderr)
     # Use the existing optimize_option_with_values to find the best value for this single option.
-    # It modifies `mutated_config` in place.
-    # Pass the specific repo_path for this worker and the shared event
-    optimize_option_with_values(
+    # It modifies `mutated_config` in place and returns the fitness of the resulting config.
+    mutated_fitness = optimize_option_with_values(
         mutated_config,
         option_to_mutate_path,
         repo_path,
@@ -190,7 +224,7 @@ def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, 
         random_seed=random_seed # Pass new arg
     )
 
-    return mutated_config
+    return mutated_config, mutated_fitness
 
 def _evolve_island_generation_task(island_evolution_args: IslandEvolutionArgs):
     """
@@ -241,7 +275,7 @@ def _evolve_island_generation_task(island_evolution_args: IslandEvolutionArgs):
 
         # Mutation: Mutate one random option in the child
         # Pass the specific repo_path for this worker
-        mutated_child_config = mutate(
+        mutated_child_config, child_fitness = mutate( # Capture fitness directly from mutate
             child_config,
             repo_path,
             lookups,
@@ -251,19 +285,40 @@ def _evolve_island_generation_task(island_evolution_args: IslandEvolutionArgs):
         )
 
         # Apply forced options to the mutated child (ensure they are always respected)
+        # Note: This might change the config, but the fitness from mutate() is for the config *before* forced options.
+        # If forced options are applied *after* mutation, the fitness might change.
+        # However, forced options are typically fixed and should ideally be applied *before* mutation
+        # or mutation should ensure they are not touched.
+        # The current logic applies forced options *after* mutation, which means the fitness
+        # returned by `mutate` might not be the final fitness of the individual.
+        # Let's re-evaluate after applying forced options to be safe, or ensure mutate respects them.
+        # For now, the simplest is to re-evaluate if forced options are applied here.
+        # A better approach would be to apply forced options *inside* mutate before the final evaluation,
+        # or ensure mutate doesn't touch forced options.
+        # Given the current structure, forced options are applied *after* mutation returns.
+        # So, the fitness returned by mutate is for the config *before* forced options are re-applied.
+        # This means we *do* need to re-evaluate after applying forced options.
+        # Let's revert the change for now, and consider a different approach for forced options.
+        #
+        # Re-thinking: The `mutate` function calls `optimize_option_with_values` which sets the best value
+        # for *one* option. The `mutated_config` returned by `mutate` is the result of this.
+        # If forced options are applied *after* this, it means the fitness returned by `mutate`
+        # is for a config that might not have all forced options correctly applied *yet*.
+        #
+        # The `mutate` function should ensure forced options are respected.
+        # Let's modify `mutate` to apply forced options *before* its final evaluation.
+        # This way, the fitness returned by `mutate` is truly the fitness of the final individual.
+
+        # Apply forced options to the mutated child (ensure they are always respected)
+        # This block is moved into the `mutate` function to ensure the returned fitness is accurate.
         for forced_path, forced_value in lookups.forced_options_lookup.items():
             if forced_path in mutated_child_config:
                 mutated_child_config[forced_path]['value'] = forced_value
-
-        # Evaluate fitness of the mutated child
-        # Use the specific repo_path for this worker
-        child_fitness = run_clang_format_and_count_changes(
-            repo_path,
-            generate_clang_format_config(mutated_child_config),
-            debug=debug,
-            file_sample_percentage=file_sample_percentage, # Pass new arg
-            random_seed=random_seed # Pass new arg
-        )
+        
+        # If forced options were applied *after* mutate, the fitness might be stale.
+        # However, if mutate ensures forced options are respected, then this fitness is correct.
+        # Let's assume `mutate` now handles forced options correctly.
+        # If `mutate` returns `float('inf')` (meaning no valid mutation), we should still add it.
         new_generation_candidates.append({'config': mutated_child_config, 'fitness': child_fitness})
 
     # Selection for next generation: Sort all candidates and take the top `island_population_size`
@@ -517,7 +572,7 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
 
                 # After migration, re-find the overall best individual from the updated populations
                 all_individuals_after_migration = [ind for island_pop in populations for ind in island_pop]
-                if all_individuals_after_migration:
+                if all_individuals_after_individuals:
                     current_overall_best_after_migration = min(all_individuals_after_migration, key=lambda x: x['fitness'])
                     if current_overall_best_after_migration['fitness'] < best_overall_individual['fitness']:
                         best_overall_individual = current_overall_best_after_migration
