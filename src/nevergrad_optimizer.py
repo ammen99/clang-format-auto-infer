@@ -27,6 +27,7 @@ class NevergradOptimizer(BaseOptimizer):
     """
 
     def __init__(self, config: NevergradConfig):
+        self.config: NevergradConfig;
         super().__init__(config) # Call parent constructor and store config
 
     @staticmethod
@@ -249,6 +250,8 @@ class NevergradOptimizer(BaseOptimizer):
                     # Tell the optimizer the result
                     optimizer.tell(candidate, loss)
 
+                    print("our loss is ", loss, file=sys.stderr)
+
                     # Update plot with the best fitness seen so far
                     if not best_fitness_history:
                         best_fitness_history.append(loss)
@@ -271,13 +274,6 @@ class NevergradOptimizer(BaseOptimizer):
                     print("\nCtrl-C detected. Terminating Nevergrad optimization immediately...", file=sys.stderr)
                     interrupted = True
                     break # Exit the loop
-                except Exception as e:
-                    print(f"Nevergrad: Error during evaluation {i+1}: {e}", file=sys.stderr)
-                    # Tell Nevergrad about the error with a high loss to penalize it
-                    # This prevents the optimizer from getting stuck on problematic configurations
-                    optimizer.tell(candidate, float('inf'))
-                    # Continue to the next iteration
-                    continue
 
             recommendation = optimizer.provide_recommendation()
 
@@ -300,6 +296,7 @@ class NevergradOptimizer(BaseOptimizer):
 
             # Close matplotlib plots if they are open and not already closed by interrupt handler
             if plot_fitness and MATPLOTLIB_AVAILABLE:
+                assert plt
                 try:
                     if interrupted: # If interrupted, plots might already be closed or in a bad state
                         plt.close('all')

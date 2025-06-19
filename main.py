@@ -11,7 +11,7 @@ from src.clang_format_parser import get_clang_format_options, parse_clang_format
 from src.config_loader import load_json_option_values, load_forced_options
 from src.optimizer import GeneticAlgorithmOptimizer # Import the GA optimizer class
 from src.nevergrad_optimizer import NevergradOptimizer # New import for Nevergrad optimizer class
-from src.data_classes import OptimizationConfig, NevergradConfig, GeneticAlgorithmLookups # New import for data classes
+from src.data_classes import GeneticOptimizationConfig, NevergradConfig, GeneticAlgorithmLookups # New import for data classes
 
 # Global debug flag (will be set from args)
 DEBUG = False
@@ -254,7 +254,7 @@ def main():
 
         if args.optimizer == "genetic":
             # Create OptimizationConfig object for Genetic Algorithm
-            opt_config = OptimizationConfig(
+            opt_config = GeneticOptimizationConfig(
                 num_iterations=args.iterations,
                 total_population_size=args.population_size,
                 num_islands=args.islands,

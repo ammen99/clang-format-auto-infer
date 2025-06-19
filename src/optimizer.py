@@ -7,7 +7,7 @@ from typing import List, Tuple, Dict, Any
 # Import formatter and config generator
 from .repo_formatter import run_clang_format_and_count_changes
 from .clang_format_parser import generate_clang_format_config
-from .data_classes import OptimizationConfig, GeneticAlgorithmLookups, IslandEvolutionArgs, WorkerContext
+from .data_classes import GeneticOptimizationConfig, GeneticAlgorithmLookups, IslandEvolutionArgs, WorkerContext
 from .base_optimizer import BaseOptimizer # New import
 
 # Initialize plt to None to prevent UnboundLocalError warnings from static analyzers
@@ -373,7 +373,8 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
     """
     Implements the genetic algorithm optimization strategy with an island model.
     """
-    def __init__(self, config: OptimizationConfig):
+    def __init__(self, config: GeneticOptimizationConfig):
+        self.config: GeneticOptimizationConfig;
         super().__init__(config) # Call parent constructor and store config
 
     def optimize(self,

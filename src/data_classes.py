@@ -11,7 +11,7 @@ class BaseOptimizerConfig(ABC):
     debug: bool # Common debug flag for all optimizers
 
 @dataclass
-class OptimizationConfig(BaseOptimizerConfig): # Inherit from BaseOptimizerConfig
+class GeneticOptimizationConfig(BaseOptimizerConfig): # Inherit from BaseOptimizerConfig
     """
     Configuration parameters for the genetic optimization algorithm.
     """
