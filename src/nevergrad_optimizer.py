@@ -142,14 +142,37 @@ class NevergradOptimizer(BaseOptimizer):
                 else:
                     # For general integers, define a reasonable range.
                     # This is a heuristic; ideally, ranges would be in clang-format-values.json.
-                    lower_bound = -100 # Allow negative for offsets
+                    lower_bound = -100 # Default for signed integers
                     upper_bound = 200 # Common max for column limits, indent widths etc.
+                    
+                    specific_type_from_json = None
+                    if full_option_path in lookups.json_options_lookup:
+                        specific_type_from_json = lookups.json_options_lookup[full_option_path]['type']
+
+                    if specific_type_from_json == 'Unsigned':
+                        lower_bound = 0 # Force lower bound to 0 for unsigned
+                        if debug:
+                            print(f"Nevergrad: Setting lower bound to 0 for unsigned option '{full_option_path}'.", file=sys.stderr)
+                    # else if specific_type_from_json == 'Integer', lower_bound remains -100
+
                     initial_val = option_info['value']
+                    
+                    # Adjust initial_val if it's outside the determined bounds
+                    # This is important if the dump-config value is negative for an unsigned option
+                    if specific_type_from_json == 'Unsigned' and initial_val < 0:
+                        initial_val = 0 # Clamp initial value for unsigned to 0 if negative
+
+                    # Now, adjust bounds based on the (potentially clamped) initial_val
+                    # Ensure initial_val is within the bounds, expanding them if necessary
                     if isinstance(initial_val, int):
                         lower_bound = min(lower_bound, initial_val)
                         upper_bound = max(upper_bound, initial_val)
                     
-                    instrumentation_params[full_option_path] = ng.p.Scalar(init=initial_val, lower=lower_bound, upper=upper_bound).set_integer_casting()
+                    # Final safety check: ensure lower_bound <= upper_bound
+                    if lower_bound > upper_bound:
+                        lower_bound, upper_bound = upper_bound, lower_bound # Swap if inverted
+
+                    instrumentation_params[full_option_path] = ng.p.Scalar(init=float(initial_val), lower=float(lower_bound), upper=float(upper_bound)).set_integer_casting()
             elif option_info['type'] == 'str' and possible_values:
                 # For string enums, use Choice
                 instrumentation_params[full_option_path] = ng.p.Choice(possible_values)
