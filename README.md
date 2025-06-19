@@ -77,7 +77,7 @@ python3 main.py <repo_path> [OPTIONS]
 *   `--plot-fitness`: **[Genetic Algorithm]** Visualize the best fitness score over time for each island using `matplotlib`.
 *   `--ng-budget <int>`: **[Nevergrad]** Total number of evaluations (budget) for the Nevergrad optimizer (default: `1000`).
 *   `--ng-optimizer <str>`: **[Nevergrad]** Name of the Nevergrad optimizer to use (e.g., `OnePlusOne`, `CMA`, `DE`, `PSO`). See Nevergrad documentation for available optimizers.
-*   `-j`, `--jobs <int>`: Number of parallel jobs to run for fitness calculation (default: `1`). Each job will operate on a separate temporary copy of your repository. Increase this to utilize more CPU cores.
+*   `-j`, `--jobs <int>`: Number of parallel jobs to run for fitness calculation (default: `1`). Each job will operate on a separate temporary copy of your repository. Increase this to utilize more CPU cores. For the `nevergrad` optimizer, this argument directly controls Nevergrad's `num_workers` parameter, enabling it to utilize multiple CPU cores by distributing evaluations across separate temporary repository copies.
 *   `--start-config-file <file_path>`: Path to an existing `.clang-format` file to use as the initial configuration for optimization. If this option is not provided, the tool will start with the default configuration obtained from `clang-format --dump-config`.
 *   `--file-sample-percentage <float>`: Percentage of files (0.0-100.0) to randomly sample from the repository for fitness calculation (default: `100.0`). Lower values speed up the process but may reduce accuracy.
 

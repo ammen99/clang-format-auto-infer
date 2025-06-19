@@ -24,6 +24,8 @@ class NevergradOptimizer(BaseOptimizer):
         file_sample_percentage: float,
         random_seed: int,
         all_repo_paths: List[str],
+        # New: Shared counter for repo path assignment
+        repo_path_counter_shared: Any, # multiprocessing.Value or Manager().Value
         # Nevergrad passes parameters as keyword arguments based on instrumentation
         # These are the parameters from the search space (e.g., AlignAfterOpenBracket=value)
         **ng_params, # This must be the last argument
@@ -35,10 +37,23 @@ class NevergradOptimizer(BaseOptimizer):
         This function is designed to be picklable for multiprocessing.
         """
         # Determine the worker's specific repo_path and process_id
+        # Use the shared counter to get a unique index for the repo path
+        # This ensures round-robin assignment of repo paths to Nevergrad's internal workers.
+        if repo_path_counter_shared:
+            with repo_path_counter_shared.get_lock():
+                current_repo_idx = repo_path_counter_shared.value
+                repo_path_counter_shared.value = (repo_path_counter_shared.value + 1) % len(all_repo_paths)
+            repo_path_for_worker = all_repo_paths[current_repo_idx]
+        else:
+            # Fallback if no shared counter is provided (e.g., for direct testing without main.py setup)
+            # This will use the old logic, potentially leading to the "run sequentially" warning.
+            process_id_raw = multiprocessing.current_process()._identity[0] if multiprocessing.current_process()._identity else 0
+            repo_path_for_worker = all_repo_paths[process_id_raw - 1] if process_id_raw > 0 else all_repo_paths[0]
+            if debug:
+                print(f"Worker {process_id_raw}: No shared counter. Using process ID based repo selection: {repo_path_for_worker}", file=sys.stderr)
+
+        # The process_id here is primarily for logging and identifying the OS process.
         process_id = multiprocessing.current_process()._identity[0] if multiprocessing.current_process()._identity else 0
-        # Ensure process_id - 1 is a valid index for all_repo_paths
-        # If process_id is 0 (main process), use the first repo_path.
-        repo_path_for_worker = all_repo_paths[process_id - 1] if process_id > 0 else all_repo_paths[0]
         worker_context = WorkerContext(repo_path=repo_path_for_worker, process_id=process_id)
 
         # Reconstruct the flat_options_info from the base template and Nevergrad's parameters
@@ -93,7 +108,9 @@ class NevergradOptimizer(BaseOptimizer):
                  lookups: GeneticAlgorithmLookups,
                  config: NevergradConfig,
                  file_sample_percentage: float,
-                 random_seed: int) -> Dict[str, Any]:
+                 random_seed: int,
+                 repo_path_counter_shared: Any = None # New argument for shared counter
+                 ) -> Dict[str, Any]:
         """
         Optimizes clang-format configuration using Nevergrad.
 
@@ -106,6 +123,9 @@ class NevergradOptimizer(BaseOptimizer):
                                          for the Nevergrad algorithm.
             file_sample_percentage (float): Percentage of files to sample for fitness calculation.
             random_seed (int): Seed for random file sampling.
+            repo_path_counter_shared (Any, optional): A multiprocessing.Manager().Value object
+                                                      used to assign repo paths to workers.
+                                                      Defaults to None.
 
         Returns:
             dict: The flat dictionary of the best clang-format configuration found.
@@ -176,7 +196,8 @@ class NevergradOptimizer(BaseOptimizer):
                 debug=debug,
                 file_sample_percentage=file_sample_percentage,
                 random_seed=random_seed, # random_seed is still passed here for file sampling
-                all_repo_paths=repo_paths
+                all_repo_paths=repo_paths,
+                repo_path_counter_shared=repo_path_counter_shared # Pass the shared counter
             )
 
             recommendation = optimizer.minimize(
