@@ -17,16 +17,16 @@ class NevergradOptimizer(BaseOptimizer):
 
     @staticmethod
     def _nevergrad_objective_function(
-        # Nevergrad passes parameters as keyword arguments based on instrumentation
-        # These are the parameters from the search space (e.g., AlignAfterOpenBracket=value)
-        **ng_params, # Changed from *args to **ng_params
         # Contextual arguments passed by functools.partial
         base_options_template: Dict[str, Any],
         lookups: GeneticAlgorithmLookups,
         debug: bool,
         file_sample_percentage: float,
         random_seed: int,
-        all_repo_paths: List[str] # List of all temporary repo paths
+        all_repo_paths: List[str],
+        # Nevergrad passes parameters as keyword arguments based on instrumentation
+        # These are the parameters from the search space (e.g., AlignAfterOpenBracket=value)
+        **ng_params, # This must be the last argument
     ) -> float:
         """
         The objective function to be minimized by Nevergrad.
@@ -43,12 +43,6 @@ class NevergradOptimizer(BaseOptimizer):
 
         # Reconstruct the flat_options_info from the base template and Nevergrad's parameters
         current_flat_options = copy.deepcopy(base_options_template)
-
-        # Removed the check for args and assignment, as ng_params now directly holds the kwargs
-        # if not args or not isinstance(args[0], dict):
-        #     print(f"Worker {process_id}: Error: Expected Nevergrad parameters as a single dictionary, got {type(args[0])}", file=sys.stderr)
-        #     return float('inf') # Indicate failure
-        # ng_params = args[0]
 
         for option_path, ng_value in ng_params.items():
             if option_path in current_flat_options:
