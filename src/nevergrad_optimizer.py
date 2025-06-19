@@ -166,12 +166,12 @@ class NevergradOptimizer(BaseOptimizer):
 
         # 2. Create the Nevergrad optimizer
         try:
-            # Pass 'instrumentation' as the 'parametrization' argument and 'seed' to the constructor
+            # Pass 'instrumentation' as the 'parametrization' argument.
+            # Removed 'seed=random_seed' as it's not universally supported by all optimizers.
             optimizer = ng.optimizers.registry[optimizer_name](
                 parametrization=instrumentation,
                 budget=budget,
                 num_workers=num_workers,
-                seed=random_seed # Pass the random_seed here
             )
         except KeyError:
             print(f"Error: Nevergrad optimizer '{optimizer_name}' not found. Available optimizers: {list(ng.optimizers.registry.keys())}", file=sys.stderr)
@@ -189,7 +189,7 @@ class NevergradOptimizer(BaseOptimizer):
                 lookups=lookups,
                 debug=debug,
                 file_sample_percentage=file_sample_percentage,
-                random_seed=random_seed,
+                random_seed=random_seed, # random_seed is still passed here for file sampling
                 all_repo_paths=repo_paths
             )
 
