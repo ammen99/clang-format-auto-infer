@@ -4,11 +4,12 @@ formatting churn and improving code consistency.
 
 ## Features
 *   **Genetic Algorithm Optimization** 🧬: Employs a genetic algorithm with an island model to explore a wide range of `clang-format` options and find an optimal configuration.
+*   **Abstracted Optimization Strategies**: The core optimization logic is now abstracted, allowing for easy integration of alternative optimization algorithms in the future.
 *   **Automatic Detection of `clang-format` Options** 🔍: Includes a tool to parse the latest `clang-format` documentation from the web and extracts information about available options. The result is stored in a human-readable JSON file which can be further tweaked to exclude certain options from the optimization process. Options extracted from clang-format 20 can be found in `data/clang-format-values.json`.
 *   **Forced Options** 🔒: Allows users to specify certain `clang-format` options that should always be set to a particular value, overriding the optimization process for those specific options. See `data/forced.yml` as an example of the options you would typically configure by hand.
 *   **Change Minimization** 📊: The fitness function for the genetic algorithm is based on minimizing the `git diff --shortstat` output (total insertions and
 deletions) after applying `clang-format`.
-*   **Interactive Plotting** 📈: Optionally visualizes the best fitness evolution of the genetic algorithm using `matplotlib` (use `--plot-fitness` to enable).
+*   **Interactive Plotting** 📈: Optionally visualizes the best fitness score over time for each island using `matplotlib` (use `--plot-fitness` to enable).
 *   **Parallelization** ⚡: Utilize multiple CPU cores by creating temporary copies of the repository and running fitness calculations in parallel.
 *   **File Sampling** ✂️: Speed up optimization by randomly sampling a percentage of files from the repository for fitness evaluation.
 *   **Graceful Termination** 🛑: Supports `Ctrl-C` to gracefully stop the optimization process and return the best configuration found so far.

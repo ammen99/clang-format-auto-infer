@@ -2,12 +2,13 @@ import sys
 import copy
 import random
 import multiprocessing
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 
 # Import formatter and config generator
 from .repo_formatter import run_clang_format_and_count_changes
 from .clang_format_parser import generate_clang_format_config
-from .data_classes import OptimizationConfig, GeneticAlgorithmLookups, IslandEvolutionArgs, WorkerContext # New import for WorkerContext
+from .data_classes import OptimizationConfig, GeneticAlgorithmLookups, IslandEvolutionArgs, WorkerContext
+from .base_optimizer import BaseOptimizer # New import
 
 # Initialize plt to None to prevent UnboundLocalError warnings from static analyzers
 plt = None
@@ -19,7 +20,7 @@ except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
 
-def optimize_option_with_values(flat_options_info, full_option_path, possible_values, island_args: IslandEvolutionArgs, worker_context: WorkerContext) -> float:
+def optimize_option_with_values(flat_options_info: Dict[str, Any], full_option_path: str, possible_values: List[Any], island_args: IslandEvolutionArgs, worker_context: WorkerContext) -> float:
     """
     Optimizes a single option by testing each value in the provided list.
     If multiple values yield the same minimum changes, one is randomly selected.
@@ -124,7 +125,7 @@ def optimize_option_with_values(flat_options_info, full_option_path, possible_va
         return min_changes
 
 
-def crossover(parent1_config, parent2_config):
+def crossover(parent1_config: Dict[str, Any], parent2_config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Performs a uniform crossover between two parent configurations.
     For each option, randomly picks the value from parent1 or parent2.
@@ -139,7 +140,7 @@ def crossover(parent1_config, parent2_config):
             child_config[option_path] = copy.deepcopy(parent2_config[option_path])
     return child_config
 
-def mutate(individual_config, island_args: IslandEvolutionArgs, worker_context: WorkerContext) -> Tuple[dict, float]:
+def mutate(individual_config: Dict[str, Any], island_args: IslandEvolutionArgs, worker_context: WorkerContext) -> Tuple[Dict[str, Any], float]:
     """
     Mutates an individual by selecting one random mutable option and optimizing its value
     by testing all possible values using optimize_option_with_values.
@@ -211,7 +212,7 @@ def mutate(individual_config, island_args: IslandEvolutionArgs, worker_context: 
 
     return mutated_config, mutated_fitness
 
-def _evolve_island_generation_task(island_args: IslandEvolutionArgs, worker_context: WorkerContext):
+def _evolve_island_generation_task(island_args: IslandEvolutionArgs, worker_context: WorkerContext) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Helper function to evolve a single island for one generation.
     This function is called by the multiprocessing pool.
@@ -273,7 +274,7 @@ def _evolve_island_generation_task(island_args: IslandEvolutionArgs, worker_cont
 
     return new_population, best_in_generation
 
-def _island_evolution_task_wrapper(args_tuple: Tuple[IslandEvolutionArgs, List[str], GeneticAlgorithmLookups, bool, float, int]):
+def _island_evolution_task_wrapper(args_tuple: Tuple[IslandEvolutionArgs, List[str], GeneticAlgorithmLookups, bool, float, int]) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Wrapper function for multiprocessing.Pool.map.
     It unpacks arguments, determines the worker's specific repo_path and process_id,
@@ -306,7 +307,7 @@ def _island_evolution_task_wrapper(args_tuple: Tuple[IslandEvolutionArgs, List[s
     return _evolve_island_generation_task(island_args_for_this_island, worker_context)
 
 
-def _perform_migration(populations, debug=False):
+def _perform_migration(populations: List[List[Dict[str, Any]]], debug: bool = False):
     """
     Performs migration between islands.
     Each island sends its best individual to a randomly chosen other island,
@@ -368,231 +369,242 @@ def _perform_migration(populations, debug=False):
                     print(f"  Migrant from island {source_idx} added to island {target_island_idx} (was unexpectedly empty).", file=sys.stderr)
 
 
-def genetic_optimize_all_options(base_options_info, repo_paths: List[str], lookups: GeneticAlgorithmLookups, ga_config: OptimizationConfig, file_sample_percentage: float, random_seed: int):
+class GeneticAlgorithmOptimizer(BaseOptimizer):
     """
-    Optimizes clang-format configuration using a genetic algorithm with an island model.
-
-    Args:
-        base_options_info (dict): The initial flat dictionary from clang-format --dump-config.
-        repo_paths (list): A list of paths to the temporary git repositories for parallel processing.
-        lookups (GeneticAlgorithmLookups): A dataclass containing lookup dictionaries for
-                                           option values and forced options.
-        ga_config (OptimizationConfig): A dataclass containing configuration parameters
-                                        for the genetic algorithm.
-        file_sample_percentage (float): Percentage of files to sample for fitness calculation.
-        random_seed (int): Seed for random file sampling.
-
-    Returns:
-        dict: The flat dictionary of the best clang-format configuration found.
+    Implements the genetic algorithm optimization strategy with an island model.
     """
-    # Unpack from ga_config
-    num_iterations = ga_config.num_iterations
-    total_population_size = ga_config.total_population_size
-    num_islands = ga_config.num_islands
-    debug = ga_config.debug
-    plot_fitness = ga_config.plot_fitness
+    def optimize(self,
+                 base_options_info: Dict[str, Any],
+                 repo_paths: List[str],
+                 lookups: GeneticAlgorithmLookups,
+                 ga_config: OptimizationConfig,
+                 file_sample_percentage: float,
+                 random_seed: int) -> Dict[str, Any]:
+        """
+        Optimizes clang-format configuration using a genetic algorithm with an island model.
 
-    if num_islands < 1:
-        print("Error: Number of islands must be at least 1. Setting to 1.", file=sys.stderr)
-        num_islands = 1
+        Args:
+            base_options_info (dict): The initial flat dictionary from clang-format --dump-config.
+            repo_paths (list): A list of paths to the temporary git repositories for parallel processing.
+            lookups (GeneticAlgorithmLookups): A dataclass containing lookup dictionaries for
+                                               option values and forced options.
+            ga_config (OptimizationConfig): A dataclass containing configuration parameters
+                                            for the genetic algorithm.
+            file_sample_percentage (float): Percentage of files to sample for fitness calculation.
+            random_seed (int): Seed for random file sampling.
 
-    # Determine population size per island
-    # Ensure a minimum of 5 individuals per island for meaningful evolution
-    MIN_INDIVIDUALS_PER_ISLAND = 5
-    island_population_size = max(MIN_INDIVIDUALS_PER_ISLAND, total_population_size // num_islands)
+        Returns:
+            dict: The flat dictionary of the best clang-format configuration found.
+        """
+        # Unpack from ga_config
+        num_iterations = ga_config.num_iterations
+        total_population_size = ga_config.total_population_size
+        num_islands = ga_config.num_islands
+        debug = ga_config.debug
+        plot_fitness = ga_config.plot_fitness
 
-    # Adjust total_population_size if the minimum per island makes it larger
-    if island_population_size * num_islands > total_population_size:
-        total_population_size = island_population_size * num_islands
-        print(f"Adjusted total population size to {total_population_size} to ensure at least {island_population_size} individuals per island.", file=sys.stderr)
-    elif total_population_size < num_islands * MIN_INDIVIDUALS_PER_ISLAND:
-        print(f"Warning: Total population size ({total_population_size}) is too small for {num_islands} islands "
-              f"with a minimum of {MIN_INDIVIDUALS_PER_ISLAND} individuals per island. "
-              f"Each island will have {island_population_size} individuals.", file=sys.stderr)
+        if num_islands < 1:
+            print("Error: Number of islands must be at least 1. Setting to 1.", file=sys.stderr)
+            num_islands = 1
 
+        # Determine population size per island
+        # Ensure a minimum of 5 individuals per island for meaningful evolution
+        MIN_INDIVIDUALS_PER_ISLAND = 5
+        island_population_size = max(MIN_INDIVIDUALS_PER_ISLAND, total_population_size // num_islands)
 
-    populations = []
-    print(f"\nInitializing {num_islands} islands, each with {island_population_size} individuals (total: {total_population_size})...", file=sys.stderr)
-
-    # Create the base individual configuration and calculate its fitness once
-    base_individual_config = copy.deepcopy(base_options_info)
-    for forced_path, forced_value in lookups.forced_options_lookup.items():
-        if forced_path in base_individual_config:
-            base_individual_config[forced_path]['value'] = forced_value
-
-    print("Calculating initial base configuration fitness...", file=sys.stderr)
-    # Use the first repo path for initial fitness calculation, as all copies are identical
-    initial_repo_path = repo_paths[0] if repo_paths else None
-    if initial_repo_path is None:
-        print("Error: No repository paths provided for initialization.", file=sys.stderr)
-        return {} # Or raise an error
-
-    # Create a dummy WorkerContext for the initial fitness calculation (main process acts as worker 0)
-    initial_worker_context = WorkerContext(
-        repo_path=initial_repo_path,
-        process_id=0 # Main process can be considered worker 0 for this initial calculation
-    )
-
-    base_fitness = run_clang_format_and_count_changes(
-        generate_clang_format_config(base_individual_config),
-        repo_path=initial_worker_context.repo_path,
-        process_id=initial_worker_context.process_id,
-        debug=debug,
-        file_sample_percentage=file_sample_percentage,
-        random_seed=random_seed
-    )
-    print(f"Initial base configuration fitness: {base_fitness}", file=sys.stderr)
-
-    # Initialize each island's population with copies of the base individual
-    for i in range(num_islands):
-        island_pop = []
-        for _ in range(island_population_size):
-            # All initial individuals are identical to the base config
-            individual_config = copy.deepcopy(base_individual_config)
-            island_pop.append({'config': individual_config, 'fitness': base_fitness})
-            # No need to print fitness for each, as it's the same
-        populations.append(island_pop)
-
-    # Find the best individual in the initial overall population (which is just the base_fitness)
-    best_overall_individual = {'config': base_individual_config, 'fitness': base_fitness}
-    print(f"\nInitial overall best fitness: {best_overall_individual['fitness']}", file=sys.stderr)
-
-    # Data structure to store best fitness for each island over time
-    fitness_history_per_island = [[] for _ in range(num_islands)]
-    # Populate initial fitness history for plotting
-    for i in range(num_islands):
-        fitness_history_per_island[i].append(base_fitness)
+        # Adjust total_population_size if the minimum per island makes it larger
+        if island_population_size * num_islands > total_population_size:
+            total_population_size = island_population_size * num_islands
+            print(f"Adjusted total population size to {total_population_size} to ensure at least {island_population_size} individuals per island.", file=sys.stderr)
+        elif total_population_size < num_islands * MIN_INDIVIDUALS_PER_ISLAND:
+            print(f"Warning: Total population size ({total_population_size}) is too small for {num_islands} islands "
+                  f"with a minimum of {MIN_INDIVIDUALS_PER_ISLAND} individuals per island. "
+                  f"Each island will have {island_population_size} individuals.", file=sys.stderr)
 
 
-    # Initialize plot variables to None/empty list
-    fig = None
-    ax = None
-    lines = []
+        populations = []
+        print(f"\nInitializing {num_islands} islands, each with {island_population_size} individuals (total: {total_population_size})...", file=sys.stderr)
 
-    # Setup plot if requested and matplotlib is available
-    if plot_fitness and MATPLOTLIB_AVAILABLE:
-        assert plt is not None # Assert plt is not None here
-        plt.ion() # Turn on interactive mode
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.set_title("Best Fitness Over Generations for Each Island")
-        ax.set_xlabel("Generation")
-        ax.set_ylabel("Best Fitness (Number of Changes)")
-        ax.grid(True)
-        lines = [ax.plot([], [], label=f'Island {i+1}')[0] for i in range(num_islands)]
-        ax.legend()
-        fig.show() # Show the figure immediately
-        fig.canvas.draw()
-        fig.canvas.flush_events()
-        plt.pause(0.01) # Give time for plot to render
-    elif plot_fitness and not MATPLOTLIB_AVAILABLE:
-        print("Plotting requested but matplotlib is not available. Skipping plot.", file=sys.stderr)
-        plot_fitness = False # Disable plotting for the rest of the function
+        # Create the base individual configuration and calculate its fitness once
+        base_individual_config = copy.deepcopy(base_options_info)
+        for forced_path, forced_value in lookups.forced_options_lookup.items():
+            if forced_path in base_individual_config:
+                base_individual_config[forced_path]['value'] = forced_value
+
+        print("Calculating initial base configuration fitness...", file=sys.stderr)
+        # Use the first repo path for initial fitness calculation, as all copies are identical
+        initial_repo_path = repo_paths[0] if repo_paths else None
+        if initial_repo_path is None:
+            print("Error: No repository paths provided for initialization.", file=sys.stderr)
+            return {} # Or raise an error
+
+        # Create a dummy WorkerContext for the initial fitness calculation (main process acts as worker 0)
+        initial_worker_context = WorkerContext(
+            repo_path=initial_repo_path,
+            process_id=0 # Main process can be considered worker 0 for this initial calculation
+        )
+
+        base_fitness = run_clang_format_and_count_changes(
+            generate_clang_format_config(base_individual_config),
+            repo_path=initial_worker_context.repo_path,
+            process_id=initial_worker_context.process_id,
+            debug=debug,
+            file_sample_percentage=file_sample_percentage,
+            random_seed=random_seed
+        )
+        print(f"Initial base configuration fitness: {base_fitness}", file=sys.stderr)
+
+        # Initialize each island's population with copies of the base individual
+        for i in range(num_islands):
+            island_pop = []
+            for _ in range(island_population_size):
+                # All initial individuals are identical to the base config
+                individual_config = copy.deepcopy(base_individual_config)
+                island_pop.append({'config': individual_config, 'fitness': base_fitness})
+                # No need to print fitness for each, as it's the same
+            populations.append(island_pop)
+
+        # Find the best individual in the initial overall population (which is just the base_fitness)
+        best_overall_individual = {'config': base_individual_config, 'fitness': base_fitness}
+        print(f"\nInitial overall best fitness: {best_overall_individual['fitness']}", file=sys.stderr)
+
+        # Data structure to store best fitness for each island over time
+        fitness_history_per_island = [[] for _ in range(num_islands)]
+        # Populate initial fitness history for plotting
+        for i in range(num_islands):
+            fitness_history_per_island[i].append(base_fitness)
 
 
-    # Migration interval (e.g., migrate every 10 generations)
-    MIGRATION_INTERVAL = 15
+        # Initialize plot variables to None/empty list
+        global plt # Access the global plt
+        fig = None
+        ax = None
+        lines = []
 
-    # Create the multiprocessing pool
-    # The number of processes in the pool is limited by the number of available repo copies
-    num_processes = len(repo_paths)
-    pool = multiprocessing.Pool(processes=num_processes)
+        # Setup plot if requested and matplotlib is available
+        if plot_fitness and MATPLOTLIB_AVAILABLE:
+            assert plt is not None # Assert plt is not None here
+            plt.ion() # Turn on interactive mode
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.set_title("Best Fitness Over Generations for Each Island")
+            ax.set_xlabel("Generation")
+            ax.set_ylabel("Best Fitness (Number of Changes)")
+            ax.grid(True)
+            lines = [ax.plot([], [], label=f'Island {i+1}')[0] for i in range(num_islands)]
+            ax.legend()
+            fig.show() # Show the figure immediately
+            fig.canvas.draw()
+            fig.canvas.flush_events()
+            plt.pause(0.01) # Give time for plot to render
+        elif plot_fitness and not MATPLOTLIB_AVAILABLE:
+            print("Plotting requested but matplotlib is not available. Skipping plot.", file=sys.stderr)
+            plot_fitness = False # Disable plotting for the rest of the function
 
-    interrupted = False # Flag to indicate if optimization was interrupted by Ctrl-C
 
-    try:
-        # Evolution Loop
-        for iteration in range(num_iterations):
-            print(f"\n--- Iteration {iteration + 1}/{num_iterations} ---", file=sys.stderr)
+        # Migration interval (e.g., migrate every 10 generations)
+        MIGRATION_INTERVAL = 15
 
-            # Prepare arguments for each island's evolution task
-            tasks_args = []
-            for i, island_pop in enumerate(populations):
-                # Create IslandEvolutionArgs for this specific island
-                island_args_for_this_island = IslandEvolutionArgs(
-                    population=island_pop,
-                    island_population_size=island_population_size,
-                    island_index=i, # Pass the logical island index
-                    lookups=lookups, # These will be passed to the wrapper and then assigned
-                    debug=debug,     # to the IslandEvolutionArgs object inside the worker
-                    file_sample_percentage=file_sample_percentage,
-                    random_seed=random_seed
-                )
-                # The wrapper will handle assigning the correct repo_path and process_id
-                tasks_args.append((island_args_for_this_island, repo_paths, lookups, debug, file_sample_percentage, random_seed))
+        # Create the multiprocessing pool
+        # The number of processes in the pool is limited by the number of available repo copies
+        num_processes = len(repo_paths)
+        pool = multiprocessing.Pool(processes=num_processes)
 
-            # Run island evolutions in parallel
-            results = pool.map(_island_evolution_task_wrapper, tasks_args)
+        interrupted = False # Flag to indicate if optimization was interrupted by Ctrl-C
 
-            # Process results from parallel evolution
-            for i, (new_island_pop, best_in_island_for_this_gen) in enumerate(results):
-                populations[i] = new_island_pop # Update the island's population
-                print(f"    Island {i + 1} best fitness: {best_in_island_for_this_gen['fitness']}", file=sys.stderr)
+        try:
+            # Evolution Loop
+            for iteration in range(num_iterations):
+                print(f"\n--- Iteration {iteration + 1}/{num_iterations} ---", file=sys.stderr)
 
-                # Store fitness for plotting
-                fitness_history_per_island[i].append(best_in_island_for_this_gen['fitness'])
+                # Prepare arguments for each island's evolution task
+                tasks_args = []
+                for i, island_pop in enumerate(populations):
+                    # Create IslandEvolutionArgs for this specific island
+                    island_args_for_this_island = IslandEvolutionArgs(
+                        population=island_pop,
+                        island_population_size=island_population_size,
+                        island_index=i, # Pass the logical island index
+                        lookups=lookups, # These will be passed to the wrapper and then assigned
+                        debug=debug,     # to the IslandEvolutionArgs object inside the worker
+                        file_sample_percentage=file_sample_percentage,
+                        random_seed=random_seed
+                    )
+                    # The wrapper will handle assigning the correct repo_path and process_id
+                    tasks_args.append((island_args_for_this_island, repo_paths, lookups, debug, file_sample_percentage, random_seed))
 
-                # Update overall best individual if this island found a better one
-                if best_in_island_for_this_gen['fitness'] < best_overall_individual['fitness']:
-                    best_overall_individual = best_in_island_for_this_gen
-                    print(f"    New overall best fitness found: {best_overall_individual['fitness']}", file=sys.stderr)
+                # Run island evolutions in parallel
+                results = pool.map(_island_evolution_task_wrapper, tasks_args)
 
-            # Update plot after all islands have evolved in this iteration
-            if plot_fitness and not interrupted: # Only update if not interrupted
-                assert ax is not None
-                assert fig is not None
-                assert plt is not None
-                for i, history in enumerate(fitness_history_per_island):
-                    lines[i].set_data(range(len(history)), history)
-                ax.relim() # Recalculate limits
-                ax.autoscale_view() # Autoscale axes
-                fig.canvas.draw()
-                fig.canvas.flush_events()
-                plt.pause(0.01) # Short pause to allow plot to update
+                # Process results from parallel evolution
+                for i, (new_island_pop, best_in_island_for_this_gen) in enumerate(results):
+                    populations[i] = new_island_pop # Update the island's population
+                    print(f"    Island {i + 1} best fitness: {best_in_island_for_this_gen['fitness']}", file=sys.stderr)
 
-            # Perform migration periodically if there's more than one island
-            if num_islands > 1 and (iteration + 1) % MIGRATION_INTERVAL == 0 and not interrupted:
-                print(f"\n--- Performing migration at iteration {iteration + 1} ---", file=sys.stderr)
-                _perform_migration(populations, debug)
+                    # Store fitness for plotting
+                    fitness_history_per_island[i].append(best_in_island_for_this_gen['fitness'])
 
-                # After migration, re-find the overall best individual from the updated populations
-                all_individuals_after_migration = [ind for island_pop in populations for ind in island_pop]
-                if all_individuals_after_migration:
-                    current_overall_best_after_migration = min(all_individuals_after_migration, key=lambda x: x['fitness'])
-                    if current_overall_best_after_migration['fitness'] < best_overall_individual['fitness']:
-                        best_overall_individual = current_overall_best_after_migration
-                        print(f"  New overall best fitness found after migration: {current_overall_best_after_migration['fitness']}", file=sys.stderr)
+                    # Update overall best individual if this island found a better one
+                    if best_in_island_for_this_gen['fitness'] < best_overall_individual['fitness']:
+                        best_overall_individual = best_in_island_for_this_gen
+                        print(f"    New overall best fitness found: {best_overall_individual['fitness']}", file=sys.stderr)
+
+                # Update plot after all islands have evolved in this iteration
+                if plot_fitness and not interrupted: # Only update if not interrupted
+                    assert ax is not None
+                    assert fig is not None
+                    assert plt is not None
+                    for i, history in enumerate(fitness_history_per_island):
+                        lines[i].set_data(range(len(history)), history)
+                    ax.relim() # Recalculate limits
+                    ax.autoscale_view() # Autoscale axes
+                    fig.canvas.draw()
+                    fig.canvas.flush_events()
+                    plt.pause(0.01) # Short pause to allow plot to update
+
+                # Perform migration periodically if there's more than one island
+                if num_islands > 1 and (iteration + 1) % MIGRATION_INTERVAL == 0 and not interrupted:
+                    print(f"\n--- Performing migration at iteration {iteration + 1} ---", file=sys.stderr)
+                    _perform_migration(populations, debug)
+
+                    # After migration, re-find the overall best individual from the updated populations
+                    all_individuals_after_migration = [ind for island_pop in populations for ind in island_pop]
+                    if all_individuals_after_migration:
+                        current_overall_best_after_migration = min(all_individuals_after_migration, key=lambda x: x['fitness'])
+                        if current_overall_best_after_migration['fitness'] < best_overall_individual['fitness']:
+                            best_overall_individual = current_overall_best_after_migration
+                            print(f"  New overall best fitness found after migration: {current_overall_best_after_migration['fitness']}", file=sys.stderr)
+                        else:
+                            print(f"  Overall best fitness remains: {best_overall_individual['fitness']} after migration.", file=sys.stderr)
                     else:
-                        print(f"  Overall best fitness remains: {best_overall_individual['fitness']} after migration.", file=sys.stderr)
-                else:
-                    print("Warning: All populations are empty after migration. This should not happen.", file=sys.stderr)
+                        print("Warning: All populations are empty after migration. This should not happen.", file=sys.stderr)
 
-    except KeyboardInterrupt:
-        print("\nCtrl-C detected. Terminating optimization immediately...", file=sys.stderr)
-        interrupted = True
-        # Close matplotlib plots if they are open
-        if MATPLOTLIB_AVAILABLE and plt:
-            try:
-                plt.close('all')
-                print("Matplotlib plots closed.", file=sys.stderr)
-            except Exception as e:
-                print(f"Warning: Could not close matplotlib plots: {e}", file=sys.stderr)
+        except KeyboardInterrupt:
+            print("\nCtrl-C detected. Terminating optimization immediately...", file=sys.stderr)
+            interrupted = True
+            # Close matplotlib plots if they are open
+            if MATPLOTLIB_AVAILABLE and plt:
+                try:
+                    plt.close('all')
+                    print("Matplotlib plots closed.", file=sys.stderr)
+                except Exception as e:
+                    print(f"Warning: Could not close matplotlib plots: {e}", file=sys.stderr)
 
-    finally:
-        if interrupted:
-            print("Forcing termination of worker pool...", file=sys.stderr)
-            pool.terminate() # Terminate workers immediately
-        else:
-            pool.close() # Allow workers to finish current tasks gracefully
+        finally:
+            if interrupted:
+                print("Forcing termination of worker pool...", file=sys.stderr)
+                pool.terminate() # Terminate workers immediately
+            else:
+                pool.close() # Allow workers to finish current tasks gracefully
 
-        pool.join() # Wait for all workers to exit (either gracefully or terminated)
-        print("Worker pool shut down.", file=sys.stderr)
+            pool.join() # Wait for all workers to exit (either gracefully or terminated)
+            print("Worker pool shut down.", file=sys.stderr)
 
-    print(f"\nGenetic algorithm finished. Best overall fitness: {best_overall_individual['fitness']}", file=sys.stderr)
+        print(f"\nGenetic algorithm finished. Best overall fitness: {best_overall_individual['fitness']}", file=sys.stderr)
 
-    # Keep the plot open at the end if it was generated AND optimization was not interrupted
-    if plot_fitness and MATPLOTLIB_AVAILABLE and not interrupted:
-        assert plt is not None
-        plt.ioff()
-        plt.show()
+        # Keep the plot open at the end if it was generated AND optimization was not interrupted
+        if plot_fitness and MATPLOTLIB_AVAILABLE and not interrupted:
+            assert plt is not None
+            plt.ioff()
+            plt.show()
 
-    return best_overall_individual['config']
+        return best_overall_individual['config']

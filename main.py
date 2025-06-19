@@ -8,7 +8,8 @@ import yaml # New import for loading YAML config files
 # Import functions from the new modules (relative imports within the src package)
 from src.clang_format_parser import get_clang_format_options, parse_clang_format_options, generate_clang_format_config
 from src.config_loader import load_json_option_values, load_forced_options
-from src.optimizer import genetic_optimize_all_options # Changed import to the new GA function
+# from src.optimizer import genetic_optimize_all_options # Changed import to the new GA function
+from src.optimizer import GeneticAlgorithmOptimizer # New import for the GA optimizer class
 from src.data_classes import OptimizationConfig, GeneticAlgorithmLookups # New import for data classes
 
 # Global debug flag (will be set from args)
@@ -221,7 +222,7 @@ def main():
             temp_repo_paths.append(temp_dir)
         print("Temporary repositories prepared.", file=sys.stderr)
 
-        print("\nStarting genetic algorithm optimization...", file=sys.stderr)
+        print("\nStarting optimization...", file=sys.stderr)
 
         # Create OptimizationConfig object
         opt_config = OptimizationConfig(
@@ -232,8 +233,11 @@ def main():
             plot_fitness=args.plot_fitness
         )
 
-        # Start the genetic algorithm optimization process
-        optimized_options_info = genetic_optimize_all_options(
+        # Instantiate the GeneticAlgorithmOptimizer
+        optimizer = GeneticAlgorithmOptimizer()
+
+        # Start the optimization process
+        optimized_options_info = optimizer.optimize(
             options_info, # Base configuration for population initialization
             temp_repo_paths, # Pass the list of temporary repo paths
             ga_lookups, # Pass the lookups object
