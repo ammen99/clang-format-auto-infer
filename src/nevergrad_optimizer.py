@@ -3,7 +3,7 @@ import sys
 import copy
 import multiprocessing
 from typing import Dict, List, Any, Tuple
-import functools # New import
+import functools
 
 from .base_optimizer import BaseOptimizer
 from .data_classes import NevergradConfig, GeneticAlgorithmLookups, WorkerContext
@@ -17,9 +17,10 @@ class NevergradOptimizer(BaseOptimizer):
 
     @staticmethod
     def _nevergrad_objective_function(
-        # Nevergrad passes parameters as positional arguments based on instrumentation
-        *args,
-        # Contextual arguments passed by the NevergradOptimizer.optimize method
+        # Nevergrad passes parameters as keyword arguments based on instrumentation
+        # These are the parameters from the search space (e.g., AlignAfterOpenBracket=value)
+        **ng_params, # Changed from *args to **ng_params
+        # Contextual arguments passed by functools.partial
         base_options_template: Dict[str, Any],
         lookups: GeneticAlgorithmLookups,
         debug: bool,
@@ -43,12 +44,11 @@ class NevergradOptimizer(BaseOptimizer):
         # Reconstruct the flat_options_info from the base template and Nevergrad's parameters
         current_flat_options = copy.deepcopy(base_options_template)
 
-        # Nevergrad's parameters are passed as a single dictionary when using Instrumentation(**kwargs)
-        if not args or not isinstance(args[0], dict):
-            print(f"Worker {process_id}: Error: Expected Nevergrad parameters as a single dictionary, got {type(args[0])}", file=sys.stderr)
-            return float('inf') # Indicate failure
-
-        ng_params = args[0]
+        # Removed the check for args and assignment, as ng_params now directly holds the kwargs
+        # if not args or not isinstance(args[0], dict):
+        #     print(f"Worker {process_id}: Error: Expected Nevergrad parameters as a single dictionary, got {type(args[0])}", file=sys.stderr)
+        #     return float('inf') # Indicate failure
+        # ng_params = args[0]
 
         for option_path, ng_value in ng_params.items():
             if option_path in current_flat_options:
@@ -176,7 +176,9 @@ class NevergradOptimizer(BaseOptimizer):
             optimizer = ng.optimizers.registry[optimizer_name](
                 parametrization=instrumentation,
                 budget=budget,
-                num_workers=num_workers,)
+                num_workers=num_workers,
+                seed=random_seed # Pass the random_seed here
+            )
         except KeyError:
             print(f"Error: Nevergrad optimizer '{optimizer_name}' not found. Available optimizers: {list(ng.optimizers.registry.keys())}", file=sys.stderr)
             sys.exit(1)
