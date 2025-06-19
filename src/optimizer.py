@@ -19,7 +19,7 @@ except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
 
-def optimize_option_with_values(flat_options_info, full_option_path, repo_path, possible_values, debug=False, file_sample_percentage=100.0, random_seed=None, worker_id: int = 0) -> float:
+def optimize_option_with_values(flat_options_info, full_option_path, possible_values, island_args: IslandEvolutionArgs) -> float:
     """
     Optimizes a single option by testing each value in the provided list.
     If multiple values yield the same minimum changes, one is randomly selected.
@@ -29,12 +29,10 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
         flat_options_info (dict): The flat dictionary containing all options.
                                   This dictionary is modified in place.
         full_option_path (str): The dot-separated full name of the option.
-        repo_path (str): Path to the git repository (one of the temporary copies).
         possible_values (list): A list of values to test for this option.
-        debug (bool): Enable debug output.
-        file_sample_percentage (float): Percentage of files to sample for fitness calculation.
-        random_seed (int, optional): Seed for random file sampling.
-        worker_id (int): Identifier for the worker process, used for logging.
+        island_args (IslandEvolutionArgs): Dataclass containing common arguments like
+                                           repo_path, debug, file_sample_percentage,
+                                           random_seed, and worker_id.
 
     Returns:
         float: The minimum number of changes (fitness) achieved by the best value for this option.
@@ -43,9 +41,9 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
     option_info = flat_options_info[full_option_path]
     original_value = option_info['value'] # Store original value
 
-    if debug:
-        print(f"Worker {worker_id}: Optimizing '{full_option_path}' (current: {original_value})...", file=sys.stderr)
-        print(f"Worker {worker_id}:   Testing values: {possible_values}", file=sys.stderr)
+    if island_args.debug:
+        print(f"Worker {island_args.worker_id}: Optimizing '{full_option_path}' (current: {original_value})...", file=sys.stderr)
+        print(f"Worker {island_args.worker_id}:   Testing values: {possible_values}", file=sys.stderr)
 
     min_changes = float('inf')
     best_values_candidates = [] # Store all values that achieve min_changes
@@ -73,7 +71,7 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
              try:
                  value_to_test = int(value_to_test)
              except (ValueError, TypeError):
-                 print(f"Worker {worker_id}: Warning: Could not convert value '{value_to_test}' to int for option '{full_option_path}'. Skipping.", file=sys.stderr)
+                 print(f"Worker {island_args.worker_id}: Warning: Could not convert value '{value_to_test}' to int for option '{full_option_path}'. Skipping.", file=sys.stderr)
                  continue # Skip this value
 
         # Add other type conversions if necessary (e.g., float, list, etc.)
@@ -86,18 +84,18 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
         # run_clang_format_and_count_changes will now exit on critical clang-format error,
         # return float('inf') on invalid config error, or return >= 0 on success, or -1 on git error.
         changes = run_clang_format_and_count_changes(
-            repo_path,
+            island_args.repo_path,
             config_string,
-            debug=debug,
-            file_sample_percentage=file_sample_percentage, # Pass new arg
-            random_seed=random_seed, # Pass new arg
-            worker_id=worker_id # Pass worker_id
+            debug=island_args.debug,
+            file_sample_percentage=island_args.file_sample_percentage, # Pass new arg
+            random_seed=island_args.random_seed, # Pass new arg
+            worker_id=island_args.worker_id # Pass worker_id
         )
 
         # We now consider float('inf') as a valid (but high) result, not an error to skip
         if changes != -1: # Only skip if it's a git-related error (-1)
             # Treat float('inf') as a very high change count
-            print(f"Worker {worker_id}:   Testing '{full_option_path}'='{value_to_test}' -> Changes: {changes}", file=sys.stderr)
+            print(f"Worker {island_args.worker_id}:   Testing '{full_option_path}'='{value_to_test}' -> Changes: {changes}", file=sys.stderr)
             if changes < min_changes:
                 min_changes = changes
                 best_values_candidates = [value_to_test] # New best found, reset list
@@ -114,14 +112,14 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
     if not best_values_candidates:
         # This happens if all tested values resulted in either a git error (-1) or an invalid clang-format config (float('inf')).
         # In this case, we keep the original value as we couldn't find a better valid one.
-        print(f"Worker {worker_id}: All tests failed or resulted in invalid configurations for '{full_option_path}'. Keeping original value: {original_value}", file=sys.stderr)
+        print(f"Worker {island_args.worker_id}: All tests failed or resulted in invalid configurations for '{full_option_path}'. Keeping original value: {original_value}", file=sys.stderr)
         # Restore the original config state if no valid candidate was found
         flat_options_info.update(original_config_state)
         return float('inf') # Indicate that no valid fitness was found for this mutation
     else:
         # Randomly select one of the best values
         best_value = random.choice(best_values_candidates)
-        print(f"Worker {worker_id}: Best value for '{full_option_path}': {best_value} (changes: {min_changes})", file=sys.stderr)
+        print(f"Worker {island_args.worker_id}: Best value for '{full_option_path}': {best_value} (changes: {min_changes})", file=sys.stderr)
         flat_options_info[full_option_path]['value'] = best_value
         return min_changes
 
@@ -141,19 +139,16 @@ def crossover(parent1_config, parent2_config):
             child_config[option_path] = copy.deepcopy(parent2_config[option_path])
     return child_config
 
-def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, debug: bool, file_sample_percentage: float, random_seed: int, worker_id: int) -> Tuple[dict, float]:
+def mutate(individual_config, island_args: IslandEvolutionArgs) -> Tuple[dict, float]:
     """
     Mutates an individual by selecting one random mutable option and optimizing its value
     by testing all possible values using optimize_option_with_values.
 
     Args:
         individual_config (dict): The configuration of the individual to mutate.
-        repo_path (str): Path to the git repository (one of the temporary copies).
-        lookups (GeneticAlgorithmLookups): Lookup for possible option values and forced options.
-        debug (bool): Enable debug output.
-        file_sample_percentage (float): Percentage of files to sample for fitness calculation.
-        random_seed (int): Seed for random file sampling.
-        worker_id (int): Identifier for the worker process, used for logging.
+        island_args (IslandEvolutionArgs): Dataclass containing common arguments like
+                                           repo_path, lookups, debug, file_sample_percentage,
+                                           random_seed, and worker_id.
 
     Returns:
         tuple[dict, float]: A tuple containing the mutated configuration and its fitness.
@@ -164,23 +159,23 @@ def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, 
     # Apply forced options to the mutated child (ensure they are always respected)
     # This ensures that the fitness returned by optimize_option_with_values is accurate
     # for a configuration that includes all forced options.
-    for forced_path, forced_value in lookups.forced_options_lookup.items():
+    for forced_path, forced_value in island_args.lookups.forced_options_lookup.items():
         if forced_path in mutated_config:
             mutated_config[forced_path]['value'] = forced_value
 
     # Find mutable options (not forced, has possible values or is boolean)
     mutable_options = []
     for full_option_path, option_info in mutated_config.items():
-        if full_option_path in lookups.forced_options_lookup:
+        if full_option_path in island_args.lookups.forced_options_lookup:
             continue # Skip forced options, they are not mutable by the GA
 
-        if (full_option_path in lookups.json_options_lookup and lookups.json_options_lookup[full_option_path]['possible_values']) or \
+        if (full_option_path in island_args.lookups.json_options_lookup and island_args.lookups.json_options_lookup[full_option_path]['possible_values']) or \
            (option_info['type'] == 'bool'):
             mutable_options.append(full_option_path)
 
     if not mutable_options:
-        if debug:
-            print(f"Worker {worker_id}: No mutable options found for mutation. Returning original config and its fitness.", file=sys.stderr)
+        if island_args.debug:
+            print(f"Worker {island_args.worker_id}: No mutable options found for mutation. Returning original config and its fitness.", file=sys.stderr)
         # If no mutable options, return the original config and a very high fitness
         # to indicate no beneficial mutation occurred.
         return mutated_config, float('inf')
@@ -190,31 +185,27 @@ def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, 
     option_info = mutated_config[option_to_mutate_path]
 
     possible_values = []
-    if option_to_mutate_path in lookups.json_options_lookup and lookups.json_options_lookup[option_to_mutate_path]['possible_values']:
-        possible_values = lookups.json_options_lookup[option_to_mutate_path]['possible_values']
+    if option_to_mutate_path in island_args.lookups.json_options_lookup and island_args.lookups.json_options_lookup[option_to_mutate_path]['possible_values']:
+        possible_values = island_args.lookups.json_options_lookup[option_to_mutate_path]['possible_values']
     elif option_info['type'] == 'bool':
         possible_values = [True, False]
 
     if not possible_values:
         # This case should ideally not be reached if mutable_options logic is correct,
         # but as a safeguard, if an option was somehow added to mutable_options without values.
-        if debug:
-            print(f"Worker {worker_id}: Warning: Selected option '{option_to_mutate_path}' for mutation but found no possible values. Returning original config and inf fitness.", file=sys.stderr)
+        if island_args.debug:
+            print(f"Worker {island_args.worker_id}: Warning: Selected option '{option_to_mutate_path}' for mutation but found no possible values. Returning original config and inf fitness.", file=sys.stderr)
         return mutated_config, float('inf') # No values to test, effectively no mutation
 
-    if debug:
-        print(f"Worker {worker_id}: Mutating '{option_to_mutate_path}' (current: {option_info['value']})...", file=sys.stderr)
+    if island_args.debug:
+        print(f"Worker {island_args.worker_id}: Mutating '{option_to_mutate_path}' (current: {option_info['value']})...", file=sys.stderr)
     # Use the existing optimize_option_with_values to find the best value for this single option.
     # It modifies `mutated_config` in place and returns the fitness of the resulting config.
     mutated_fitness = optimize_option_with_values(
         mutated_config,
         option_to_mutate_path,
-        repo_path,
         possible_values,
-        debug=debug,
-        file_sample_percentage=file_sample_percentage, # Pass new arg
-        random_seed=random_seed, # Pass new arg
-        worker_id=worker_id # Pass worker_id
+        island_args # Pass the IslandEvolutionArgs object
     )
 
     return mutated_config, mutated_fitness
@@ -232,13 +223,13 @@ def _evolve_island_generation_task(island_evolution_args: IslandEvolutionArgs):
     """
     # Unpack arguments from the dataclass
     population = island_evolution_args.population
-    repo_path = island_evolution_args.repo_path
-    lookups = island_evolution_args.lookups
+    # repo_path = island_evolution_args.repo_path # No longer directly unpacked, passed via island_args
+    # lookups = island_evolution_args.lookups # No longer directly unpacked, passed via island_args
     island_population_size = island_evolution_args.island_population_size
-    debug = island_evolution_args.debug
-    file_sample_percentage = island_evolution_args.file_sample_percentage # New arg
-    random_seed = island_evolution_args.random_seed # New arg
-    worker_id = island_evolution_args.worker_id # New arg
+    # debug = island_evolution_args.debug # No longer directly unpacked, passed via island_args
+    # file_sample_percentage = island_evolution_args.file_sample_percentage # No longer directly unpacked, passed via island_args
+    # random_seed = island_evolution_args.random_seed # No longer directly unpacked, passed via island_args
+    # worker_id = island_evolution_args.worker_id # No longer directly unpacked, passed via island_args
 
     new_generation_candidates = []
 
@@ -260,8 +251,8 @@ def _evolve_island_generation_task(island_evolution_args: IslandEvolutionArgs):
         if len(population) < 2:
             parent1 = population[0]['config'] if population else {}
             child_config = copy.deepcopy(parent1)
-            if debug:
-                print(f"Worker {worker_id}: Warning: Island population too small for crossover. Mutating a copy of the best individual.", file=sys.stderr)
+            if island_evolution_args.debug:
+                print(f"Worker {island_evolution_args.worker_id}: Warning: Island population too small for crossover. Mutating a copy of the best individual.", file=sys.stderr)
         else:
             parent1 = random.choice(population)['config']
             parent2 = random.choice(population)['config']
@@ -271,12 +262,7 @@ def _evolve_island_generation_task(island_evolution_args: IslandEvolutionArgs):
         # The mutate function now handles applying forced options internally
         mutated_child_config, child_fitness = mutate(
             child_config,
-            repo_path,
-            lookups,
-            debug,
-            file_sample_percentage=file_sample_percentage,
-            random_seed=random_seed,
-            worker_id=worker_id # Pass worker_id
+            island_evolution_args # Pass the IslandEvolutionArgs object
         )
         
         new_generation_candidates.append({'config': mutated_child_config, 'fitness': child_fitness})
@@ -410,14 +396,26 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
         print("Error: No repository paths provided for initialization.", file=sys.stderr)
         return {} # Or raise an error
 
-    # Use worker_id 0 for the initial base fitness calculation
-    base_fitness = run_clang_format_and_count_changes(
-        initial_repo_path,
-        generate_clang_format_config(base_individual_config),
+    # Create a dummy IslandEvolutionArgs for the initial fitness calculation
+    # This ensures consistency in how run_clang_format_and_count_changes is called.
+    initial_island_args = IslandEvolutionArgs(
+        population=[], # Not relevant for this single call
+        island_population_size=0, # Not relevant
+        repo_path=initial_repo_path,
+        lookups=lookups, # Pass the actual lookups
         debug=debug,
-        file_sample_percentage=file_sample_percentage, # Pass new arg
-        random_seed=random_seed, # Pass new arg
+        file_sample_percentage=file_sample_percentage,
+        random_seed=random_seed,
         worker_id=0 # Assign worker_id 0 for initial calculation
+    )
+
+    base_fitness = run_clang_format_and_count_changes(
+        initial_island_args.repo_path,
+        generate_clang_format_config(base_individual_config),
+        debug=initial_island_args.debug,
+        file_sample_percentage=initial_island_args.file_sample_percentage, # Pass new arg
+        random_seed=initial_island_args.random_seed, # Pass new arg
+        worker_id=initial_island_args.worker_id # Pass worker_id
     )
     print(f"Initial base configuration fitness: {base_fitness}", file=sys.stderr)
 
