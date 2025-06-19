@@ -3,6 +3,7 @@ import sys
 import copy
 import multiprocessing
 from typing import Dict, List, Any, Tuple
+import functools # New import
 
 from .base_optimizer import BaseOptimizer
 from .data_classes import NevergradConfig, GeneticAlgorithmLookups, WorkerContext
@@ -176,6 +177,7 @@ class NevergradOptimizer(BaseOptimizer):
                 parametrization=instrumentation,
                 budget=budget,
                 num_workers=num_workers,
+                seed=random_seed # Pass the random_seed here
             )
         except KeyError:
             print(f"Error: Nevergrad optimizer '{optimizer_name}' not found. Available optimizers: {list(ng.optimizers.registry.keys())}", file=sys.stderr)
@@ -184,19 +186,21 @@ class NevergradOptimizer(BaseOptimizer):
             print(f"Error initializing Nevergrad optimizer: {e}", file=sys.stderr)
             sys.exit(1)
 
-        # Removed: optimizer.random_state.seed(random_seed) as it's now passed in the constructor
-
         # 3. Run the optimization
         try:
-            recommendation = optimizer.minimize(
+            # Use functools.partial to bind the static context arguments to the objective function
+            objective_with_context = functools.partial(
                 self._nevergrad_objective_function,
-                # Pass static context as kwargs to the objective function
-                base_options_template=base_options_info, # Use as a template
+                base_options_template=base_options_info,
                 lookups=lookups,
                 debug=debug,
                 file_sample_percentage=file_sample_percentage,
                 random_seed=random_seed,
-                all_repo_paths=repo_paths, # Pass the list of all repo paths
+                all_repo_paths=repo_paths
+            )
+
+            recommendation = optimizer.minimize(
+                objective_with_context # Pass the partially applied objective function
             )
         except KeyboardInterrupt:
             print("\nCtrl-C detected. Terminating Nevergrad optimization immediately...", file=sys.stderr)
