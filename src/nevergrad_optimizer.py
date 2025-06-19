@@ -2,7 +2,7 @@ import nevergrad as ng
 import sys
 import copy
 import multiprocessing
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 import functools
 import concurrent.futures
 
@@ -235,45 +235,66 @@ class NevergradOptimizer(BaseOptimizer):
             print(f"Nevergrad: Using ProcessPoolExecutor with {num_workers} workers.", file=sys.stderr)
 
             # Ask/Tell loop for optimization
-            for i in range(budget):
-                if debug:
-                    print(f"Nevergrad: Evaluation {i+1}/{budget}", file=sys.stderr)
-                try:
-                    # Ask for a new candidate
+            current_eval_count = 0
+            while current_eval_count < budget and not interrupted:
+                # Ask for up to num_workers candidates or until budget is met
+                num_to_ask = min(num_workers, budget - current_eval_count)
+                
+                pending_evaluations: List[Tuple[ng.p.Parameter, concurrent.futures.Future]] = []
+
+                for _ in range(num_to_ask):
+                    if interrupted:
+                        break
                     candidate = optimizer.ask()
-
-                    # Evaluate the candidate using the executor
-                    # The objective_with_context is a partial function, so we pass kwargs directly
                     future = executor.submit(objective_with_context, **candidate.kwargs)
-                    loss = future.result() # This will block until the evaluation is complete
+                    pending_evaluations.append((candidate, future))
+                    current_eval_count += 1
 
-                    # Tell the optimizer the result
-                    optimizer.tell(candidate, loss)
+                # Process results as they complete
+                for completed_candidate, completed_future in concurrent.futures.as_completed(pending_evaluations):
+                    if interrupted:
+                        break # Stop processing if interrupted
 
-                    print("our loss is ", loss, file=sys.stderr)
+                    try:
+                        loss = completed_future.result()
+                        optimizer.tell(completed_candidate, loss)
 
-                    # Update plot with the best fitness seen so far
-                    if not best_fitness_history:
-                        best_fitness_history.append(loss)
-                    else:
-                        best_fitness_history.append(min(best_fitness_history[-1], loss))
+                        if debug:
+                            print(f"Nevergrad: Evaluation {len(best_fitness_history) + 1} (current budget: {current_eval_count}/{budget}) - Loss: {loss}", file=sys.stderr)
 
-                    if plot_fitness and MATPLOTLIB_AVAILABLE and not interrupted:
-                        assert ax is not None
-                        assert fig is not None
-                        assert plt is not None
-                        assert line is not None
-                        line.set_data(range(len(best_fitness_history)), best_fitness_history)
-                        ax.relim() # Recalculate limits
-                        ax.autoscale_view() # Autoscale axes
-                        fig.canvas.draw()
-                        fig.canvas.flush_events()
-                        plt.pause(0.01) # Short pause to allow plot to update
+                        # Update plot with the best fitness seen so far
+                        if not best_fitness_history:
+                            best_fitness_history.append(loss)
+                        else:
+                            best_fitness_history.append(min(best_fitness_history[-1], loss))
 
-                except KeyboardInterrupt:
-                    print("\nCtrl-C detected. Terminating Nevergrad optimization immediately...", file=sys.stderr)
-                    interrupted = True
-                    break # Exit the loop
+                        if plot_fitness and MATPLOTLIB_AVAILABLE and not interrupted:
+                            assert ax is not None
+                            assert fig is not None
+                            assert plt is not None
+                            assert line is not None
+                            line.set_data(range(len(best_fitness_history)), best_fitness_history)
+                            ax.relim() # Recalculate limits
+                            ax.autoscale_view() # Autoscale axes
+                            fig.canvas.draw()
+                            fig.canvas.flush_events()
+                            plt.pause(0.01) # Short pause to allow plot to update
+
+                    except KeyboardInterrupt:
+                        print("\nCtrl-C detected during evaluation. Terminating Nevergrad optimization immediately...", file=sys.stderr)
+                        interrupted = True
+                        break # Break from as_completed loop
+                    except Exception as e:
+                        print(f"Nevergrad: Error during evaluation: {e}", file=sys.stderr)
+                        # Tell Nevergrad about the error with a high loss to penalize it
+                        # This prevents the optimizer from getting stuck on problematic configurations
+                        optimizer.tell(completed_candidate, float('inf'))
+                        # Continue to the next iteration in as_completed, but don't break the outer loop
+                        continue
+                
+                # If interrupted during the inner loops, break the outer while loop too
+                if interrupted:
+                    break
 
             recommendation = optimizer.provide_recommendation()
 
@@ -291,6 +312,10 @@ class NevergradOptimizer(BaseOptimizer):
         finally:
             if executor:
                 print("Shutting down Nevergrad's ProcessPoolExecutor...", file=sys.stderr)
+                # If interrupted, cancel remaining futures and then shutdown
+                if interrupted:
+                    for _, future in pending_evaluations: # Use the last state of pending_evaluations
+                        future.cancel()
                 executor.shutdown(wait=True) # Wait for current tasks to complete
                 print("Nevergrad's ProcessPoolExecutor shut down.", file=sys.stderr)
 
