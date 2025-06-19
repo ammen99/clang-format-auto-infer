@@ -105,7 +105,7 @@ def main():
     parser.add_argument(
         "--plot-fitness",
         action="store_true",
-        help="[Genetic Algorithm] Visualize the best fitness score over time for each island."
+        help="[Genetic Algorithm & Nevergrad] Visualize the best fitness score over time for each island/evaluation."
     )
     # Nevergrad specific arguments
     parser.add_argument(
@@ -275,7 +275,8 @@ def main():
                 budget=args.ng_budget,
                 optimizer_name=args.ng_optimizer,
                 num_workers=num_jobs, # Nevergrad uses num_workers directly
-                debug=DEBUG
+                debug=DEBUG,
+                plot_fitness=args.plot_fitness # New: Pass plot_fitness to NevergradConfig
             )
             optimizer = NevergradOptimizer(ng_config) # Pass config to constructor
             optimized_options_info = optimizer.optimize(

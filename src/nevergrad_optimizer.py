@@ -4,12 +4,22 @@ import copy
 import multiprocessing
 from typing import Dict, List, Any
 import functools
-import concurrent.futures # New import for ProcessPoolExecutor
+import concurrent.futures
 
 from .base_optimizer import BaseOptimizer
 from .data_classes import NevergradConfig, GeneticAlgorithmLookups, WorkerContext
 from .clang_format_parser import generate_clang_format_config
 from .repo_formatter import run_clang_format_and_count_changes
+
+# Initialize plt to None to prevent UnboundLocalError warnings from static analyzers
+plt = None
+MATPLOTLIB_AVAILABLE = False
+try:
+    import matplotlib.pyplot as plt
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    print("Warning: matplotlib not found. Fitness plotting will be disabled. Install with 'pip install matplotlib' to enable.", file=sys.stderr)
+
 
 class NevergradOptimizer(BaseOptimizer):
     """
@@ -126,6 +136,7 @@ class NevergradOptimizer(BaseOptimizer):
         optimizer_name = self.config.optimizer_name
         num_workers = self.config.num_workers
         debug = self.config.debug
+        plot_fitness = self.config.plot_fitness # New: Get plot_fitness flag
 
         print(f"\nStarting Nevergrad optimization with {optimizer_name}...", file=sys.stderr)
         print(f"Budget: {budget}, Workers: {num_workers}", file=sys.stderr)
@@ -180,6 +191,49 @@ class NevergradOptimizer(BaseOptimizer):
 
         # 3. Run the optimization
         executor = None
+        best_fitness_history = [] # To store best fitness over iterations
+        fig = None
+        ax = None
+        line = None
+        interrupted = False # Flag for KeyboardInterrupt
+
+        # Setup plot if requested and matplotlib is available
+        if plot_fitness and MATPLOTLIB_AVAILABLE:
+            assert plt is not None # Assert plt is not None here
+            plt.ion() # Turn on interactive mode
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.set_title(f"Nevergrad Optimization ({optimizer_name}) - Best Fitness Over Evaluations")
+            ax.set_xlabel("Evaluations")
+            ax.set_ylabel("Best Fitness (Number of Changes)")
+            ax.grid(True)
+            line, = ax.plot([], [], label="Best Fitness") # Comma is important for unpacking
+            ax.legend()
+            fig.show() # Show the figure immediately
+            fig.canvas.draw()
+            fig.canvas.flush_events()
+            plt.pause(0.01) # Give time for plot to render
+        elif plot_fitness and not MATPLOTLIB_AVAILABLE:
+            print("Plotting requested but matplotlib is not available. Skipping plot.", file=sys.stderr)
+            plot_fitness = False # Disable plotting for the rest of the function
+
+        # Define the callback function for Nevergrad
+        def _nevergrad_callback(current_optimizer, candidate):
+            nonlocal best_fitness_history, fig, ax, line # Access outer scope variables
+            current_best_loss = current_optimizer.current_bests["average"].loss
+            best_fitness_history.append(current_best_loss)
+
+            if plot_fitness and MATPLOTLIB_AVAILABLE and not interrupted:
+                assert ax is not None
+                assert fig is not None
+                assert plt is not None
+                assert line is not None
+                line.set_data(range(len(best_fitness_history)), best_fitness_history)
+                ax.relim() # Recalculate limits
+                ax.autoscale_view() # Autoscale axes
+                fig.canvas.draw()
+                fig.canvas.flush_events()
+                plt.pause(0.01) # Short pause to allow plot to update
+
         try:
             # Use functools.partial to bind the static context arguments to the objective function
             objective_with_context = functools.partial(
@@ -199,10 +253,12 @@ class NevergradOptimizer(BaseOptimizer):
 
             recommendation = optimizer.minimize(
                 objective_with_context, # Pass the partially applied objective function
-                executor=executor # type: ignore
+                executor=executor, # Explicitly pass the executor for parallelization
+                callback=_nevergrad_callback # Pass the callback function
             )
         except KeyboardInterrupt:
             print("\nCtrl-C detected. Terminating Nevergrad optimization immediately...", file=sys.stderr)
+            interrupted = True
             # Nevergrad handles graceful shutdown on KeyboardInterrupt internally
             # We can still try to get the best recommendation found so far
             recommendation = optimizer.provide_recommendation()
@@ -221,6 +277,19 @@ class NevergradOptimizer(BaseOptimizer):
                 print("Shutting down Nevergrad's ProcessPoolExecutor...", file=sys.stderr)
                 executor.shutdown(wait=True) # Wait for current tasks to complete
                 print("Nevergrad's ProcessPoolExecutor shut down.", file=sys.stderr)
+
+            # Close matplotlib plots if they are open and not already closed by interrupt handler
+            if plot_fitness and MATPLOTLIB_AVAILABLE:
+                try:
+                    if interrupted: # If interrupted, plots might already be closed or in a bad state
+                        plt.close('all')
+                        print("Matplotlib plots closed due to interruption.", file=sys.stderr)
+                    else: # If not interrupted, keep plot open briefly then close
+                        plt.ioff() # Turn off interactive mode
+                        plt.show() # Show final plot and block until closed
+                        print("Matplotlib plot displayed and closed.", file=sys.stderr)
+                except Exception as e:
+                    print(f"Warning: Could not close matplotlib plots: {e}", file=sys.stderr)
 
 
         # 4. Get the best parameters and convert back to clang-format config

@@ -28,6 +28,7 @@ class NevergradConfig(BaseOptimizerConfig): # Inherit from BaseOptimizerConfig
     budget: int
     optimizer_name: str
     num_workers: int
+    plot_fitness: bool # New: Add plot_fitness to NevergradConfig
 
 @dataclass
 class GeneticAlgorithmLookups:
