@@ -96,7 +96,7 @@ class NevergradOptimizer(BaseOptimizer):
                  base_options_info: Dict[str, Any],
                  repo_paths: List[str],
                  lookups: GeneticAlgorithmLookups,
-                 config: NevergradConfig, # Changed parameter name and type to NevergradConfig
+                 config: NevergradConfig,
                  file_sample_percentage: float,
                  random_seed: int) -> Dict[str, Any]:
         """
@@ -115,7 +115,6 @@ class NevergradOptimizer(BaseOptimizer):
         Returns:
             dict: The flat dictionary of the best clang-format configuration found.
         """
-        # Use 'config' directly, no need to rename to ng_config
         budget = config.budget
         optimizer_name = config.optimizer_name
         num_workers = config.num_workers
@@ -172,8 +171,8 @@ class NevergradOptimizer(BaseOptimizer):
 
         # 2. Create the Nevergrad optimizer
         try:
-            # Removed 'instrumentation' from the constructor call
-            optimizer = ng.optimizers.registry[optimizer_name](budget=budget, num_workers=num_workers)
+            # Pass 'instrumentation' as the 'parametrization' argument to the constructor
+            optimizer = ng.optimizers.registry[optimizer_name](parametrization=instrumentation, budget=budget, num_workers=num_workers)
         except KeyError:
             print(f"Error: Nevergrad optimizer '{optimizer_name}' not found. Available optimizers: {list(ng.optimizers.registry.keys())}", file=sys.stderr)
             sys.exit(1)
@@ -196,9 +195,6 @@ class NevergradOptimizer(BaseOptimizer):
                 file_sample_percentage=file_sample_percentage,
                 random_seed=random_seed,
                 all_repo_paths=repo_paths, # Pass the list of all repo paths
-                # The instrumentation is implicitly handled by Nevergrad's minimize method
-                # which passes the parameters defined by 'instrumentation' to the objective function.
-                # We do not pass 'instrumentation' as a direct keyword argument here.
             )
         except KeyboardInterrupt:
             print("\nCtrl-C detected. Terminating Nevergrad optimization immediately...", file=sys.stderr)
