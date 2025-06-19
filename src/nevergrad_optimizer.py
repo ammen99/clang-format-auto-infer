@@ -176,9 +176,7 @@ class NevergradOptimizer(BaseOptimizer):
             optimizer = ng.optimizers.registry[optimizer_name](
                 parametrization=instrumentation,
                 budget=budget,
-                num_workers=num_workers,
-                seed=random_seed # Pass the random_seed here
-            )
+                num_workers=num_workers,)
         except KeyError:
             print(f"Error: Nevergrad optimizer '{optimizer_name}' not found. Available optimizers: {list(ng.optimizers.registry.keys())}", file=sys.stderr)
             sys.exit(1)
