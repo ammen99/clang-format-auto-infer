@@ -572,7 +572,7 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
 
                 # After migration, re-find the overall best individual from the updated populations
                 all_individuals_after_migration = [ind for island_pop in populations for ind in island_pop]
-                if all_individuals_after_individuals:
+                if all_individuals_after_migration: # Corrected variable name here
                     current_overall_best_after_migration = min(all_individuals_after_migration, key=lambda x: x['fitness'])
                     if current_overall_best_after_migration['fitness'] < best_overall_individual['fitness']:
                         best_overall_individual = current_overall_best_after_migration
