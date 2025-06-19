@@ -84,12 +84,8 @@ def optimize_option_with_values(flat_options_info, full_option_path, possible_va
         # run_clang_format_and_count_changes will now exit on critical clang-format error,
         # return float('inf') on invalid config error, or return >= 0 on success, or -1 on git error.
         changes = run_clang_format_and_count_changes(
-            island_args.repo_path,
             config_string,
-            debug=island_args.debug,
-            file_sample_percentage=island_args.file_sample_percentage, # Pass new arg
-            random_seed=island_args.random_seed, # Pass new arg
-            worker_id=island_args.worker_id # Pass worker_id
+            island_args # Pass the IslandEvolutionArgs object
         )
 
         # We now consider float('inf') as a valid (but high) result, not an error to skip
@@ -410,12 +406,8 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
     )
 
     base_fitness = run_clang_format_and_count_changes(
-        initial_island_args.repo_path,
         generate_clang_format_config(base_individual_config),
-        debug=initial_island_args.debug,
-        file_sample_percentage=initial_island_args.file_sample_percentage, # Pass new arg
-        random_seed=initial_island_args.random_seed, # Pass new arg
-        worker_id=initial_island_args.worker_id # Pass worker_id
+        initial_island_args # Pass the IslandEvolutionArgs object
     )
     print(f"Initial base configuration fitness: {base_fitness}", file=sys.stderr)
 
