@@ -4,6 +4,7 @@ import copy
 import multiprocessing
 from typing import Dict, List, Any
 import functools
+import concurrent.futures # New import for ProcessPoolExecutor
 
 from .base_optimizer import BaseOptimizer
 from .data_classes import NevergradConfig, GeneticAlgorithmLookups, WorkerContext
@@ -188,6 +189,7 @@ class NevergradOptimizer(BaseOptimizer):
             sys.exit(1)
 
         # 3. Run the optimization
+        executor = None
         try:
             # Use functools.partial to bind the static context arguments to the objective function
             objective_with_context = functools.partial(
@@ -201,8 +203,14 @@ class NevergradOptimizer(BaseOptimizer):
                 repo_path_counter_shared=repo_path_counter_shared # Pass the shared counter
             )
 
+            # Create a ProcessPoolExecutor for Nevergrad to use for parallel evaluations
+            # max_workers should be equal to num_workers specified for Nevergrad
+            executor = concurrent.futures.ProcessPoolExecutor(max_workers=num_workers)
+            print(f"Nevergrad: Using ProcessPoolExecutor with {num_workers} workers.", file=sys.stderr)
+
             recommendation = optimizer.minimize(
-                objective_with_context # Pass the partially applied objective function
+                objective_with_context, # Pass the partially applied objective function
+                executor=executor # Explicitly pass the executor for parallelization
             )
         except KeyboardInterrupt:
             print("\nCtrl-C detected. Terminating Nevergrad optimization immediately...", file=sys.stderr)
@@ -219,6 +227,11 @@ class NevergradOptimizer(BaseOptimizer):
                 return base_options_info
             # Otherwise, proceed to process the partial recommendation
             print("Attempting to process the best recommendation found so far.", file=sys.stderr)
+        finally:
+            if executor:
+                print("Shutting down Nevergrad's ProcessPoolExecutor...", file=sys.stderr)
+                executor.shutdown(wait=True) # Wait for current tasks to complete
+                print("Nevergrad's ProcessPoolExecutor shut down.", file=sys.stderr)
 
 
         # 4. Get the best parameters and convert back to clang-format config
