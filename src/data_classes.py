@@ -13,6 +13,16 @@ class OptimizationConfig:
     plot_fitness: bool
 
 @dataclass
+class NevergradConfig:
+    """
+    Configuration parameters for the Nevergrad optimization algorithm.
+    """
+    budget: int
+    optimizer_name: str
+    num_workers: int
+    debug: bool
+
+@dataclass
 class GeneticAlgorithmLookups:
     """
     Lookup data (JSON option values, forced options) needed by the genetic algorithm.

@@ -8,9 +8,9 @@ import yaml # New import for loading YAML config files
 # Import functions from the new modules (relative imports within the src package)
 from src.clang_format_parser import get_clang_format_options, parse_clang_format_options, generate_clang_format_config
 from src.config_loader import load_json_option_values, load_forced_options
-# from src.optimizer import genetic_optimize_all_options # Changed import to the new GA function
-from src.optimizer import GeneticAlgorithmOptimizer # New import for the GA optimizer class
-from src.data_classes import OptimizationConfig, GeneticAlgorithmLookups # New import for data classes
+from src.optimizer import GeneticAlgorithmOptimizer # Import the GA optimizer class
+from src.nevergrad_optimizer import NevergradOptimizer # New import for Nevergrad optimizer class
+from src.data_classes import OptimizationConfig, NevergradConfig, GeneticAlgorithmLookups # New import for data classes
 
 # Global debug flag (will be set from args)
 DEBUG = False
@@ -77,27 +77,47 @@ def main():
         help="Enable debug output (print commands being executed)."
     )
     parser.add_argument(
+        "--optimizer",
+        choices=["genetic", "nevergrad"],
+        default="genetic",
+        help="Choose the optimization algorithm (genetic or nevergrad). Default: genetic."
+    )
+    # Genetic Algorithm specific arguments
+    parser.add_argument(
         "--iterations",
         type=int,
         default=100,
-        help="Number of iterations (generations) for the genetic algorithm."
+        help="[Genetic Algorithm] Number of iterations (generations) for the genetic algorithm."
     )
     parser.add_argument(
         "--population-size",
         type=int,
         default=4, # Increased default for better GA performance with islands
-        help="Total number of individuals across all islands in the genetic algorithm population."
+        help="[Genetic Algorithm] Total number of individuals across all islands in the genetic algorithm population."
     )
     parser.add_argument(
         "--islands",
         type=int,
         default=1,
-        help="Number of independent populations (islands) for the genetic algorithm. Set to 1 for a single population."
+        help="[Genetic Algorithm] Number of independent populations (islands) for the genetic algorithm. Set to 1 for a single population."
     )
     parser.add_argument(
         "--plot-fitness",
         action="store_true",
-        help="Visualize the best fitness score over time for each island."
+        help="[Genetic Algorithm] Visualize the best fitness score over time for each island."
+    )
+    # Nevergrad specific arguments
+    parser.add_argument(
+        "--ng-budget",
+        type=int,
+        default=1000,
+        help="[Nevergrad] Total number of evaluations (budget) for the Nevergrad optimizer."
+    )
+    parser.add_argument(
+        "--ng-optimizer",
+        type=str,
+        default="OnePlusOne",
+        help="[Nevergrad] Name of the Nevergrad optimizer to use (e.g., OnePlusOne, CMA, DE, PSO). See Nevergrad documentation for options."
     )
     parser.add_argument(
         "-j", "--jobs",
@@ -181,8 +201,8 @@ def main():
     # Load and flatten forced options
     forced_options_lookup = load_forced_options(args.forced_options_yaml_file)
 
-    # Create GeneticAlgorithmLookups object
-    ga_lookups = GeneticAlgorithmLookups(
+    # Create GeneticAlgorithmLookups object (used by both optimizers for option info)
+    lookups = GeneticAlgorithmLookups(
         json_options_lookup=json_options_lookup,
         forced_options_lookup=forced_options_lookup
     )
@@ -191,7 +211,7 @@ def main():
     # and not present in forced options
     missing_options = []
     # Pass the flat options_info directly
-    find_options_without_json_values(options_info, ga_lookups.json_options_lookup, ga_lookups.forced_options_lookup, missing_options)
+    find_options_without_json_values(options_info, lookups.json_options_lookup, lookups.forced_options_lookup, missing_options)
 
     if missing_options:
         print("\nThe following options were found in the base config but were not present in the provided JSON file or had no possible values listed (and are not booleans or forced options):", file=sys.stderr)
@@ -212,9 +232,10 @@ def main():
     temp_repo_paths = []
     print(f"\nPreparing {num_jobs} temporary copies of the repository for parallel processing...", file=sys.stderr)
     try:
-        for _ in range(num_jobs):
+        for i in range(num_jobs):
             # Create a unique temporary directory
-            temp_dir = tempfile.mkdtemp(prefix='clang_opt_repo_')
+            # Add process_id to prefix for clarity in debug logs
+            temp_dir = tempfile.mkdtemp(prefix=f'clang_opt_repo_{i}_')
             print(f"  Copying '{repo_path_abs}' to '{temp_dir}'...", file=sys.stderr)
             # Copy contents of the original repo to the temporary directory
             # dirs_exist_ok=True is for Python 3.8+
@@ -224,27 +245,46 @@ def main():
 
         print("\nStarting optimization...", file=sys.stderr)
 
-        # Create OptimizationConfig object
-        opt_config = OptimizationConfig(
-            num_iterations=args.iterations,
-            total_population_size=args.population_size,
-            num_islands=args.islands,
-            debug=DEBUG,
-            plot_fitness=args.plot_fitness
-        )
+        optimized_options_info = None
 
-        # Instantiate the GeneticAlgorithmOptimizer
-        optimizer = GeneticAlgorithmOptimizer()
-
-        # Start the optimization process
-        optimized_options_info = optimizer.optimize(
-            options_info, # Base configuration for population initialization
-            temp_repo_paths, # Pass the list of temporary repo paths
-            ga_lookups, # Pass the lookups object
-            opt_config, # Pass the optimization config object
-            args.file_sample_percentage, # Pass file sampling percentage
-            RANDOM_SEED # Pass the fixed random seed
-        )
+        if args.optimizer == "genetic":
+            # Create OptimizationConfig object for Genetic Algorithm
+            opt_config = OptimizationConfig(
+                num_iterations=args.iterations,
+                total_population_size=args.population_size,
+                num_islands=args.islands,
+                debug=DEBUG,
+                plot_fitness=args.plot_fitness
+            )
+            optimizer = GeneticAlgorithmOptimizer()
+            optimized_options_info = optimizer.optimize(
+                options_info, # Base configuration for population initialization
+                temp_repo_paths, # Pass the list of temporary repo paths
+                lookups, # Pass the lookups object
+                opt_config, # Pass the GA config object
+                args.file_sample_percentage, # Pass file sampling percentage
+                RANDOM_SEED # Pass the fixed random seed
+            )
+        elif args.optimizer == "nevergrad":
+            # Create NevergradConfig object
+            ng_config = NevergradConfig(
+                budget=args.ng_budget,
+                optimizer_name=args.ng_optimizer,
+                num_workers=num_jobs, # Nevergrad uses num_workers directly
+                debug=DEBUG
+            )
+            optimizer = NevergradOptimizer()
+            optimized_options_info = optimizer.optimize(
+                options_info, # Base configuration for Nevergrad instrumentation
+                temp_repo_paths, # Pass the list of temporary repo paths
+                lookups, # Pass the lookups object
+                ng_config, # Pass the Nevergrad config object
+                args.file_sample_percentage, # Pass file sampling percentage
+                RANDOM_SEED # Pass the fixed random seed
+            )
+        else:
+            print(f"Error: Unknown optimizer '{args.optimizer}'.", file=sys.stderr)
+            exit(1)
 
         print("\nOptimization complete.", file=sys.stderr)
 
