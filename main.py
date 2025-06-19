@@ -244,18 +244,9 @@ def main():
             temp_repo_paths.append(temp_dir)
         print("Temporary repositories prepared.", file=sys.stderr)
 
-        # Initialize multiprocessing manager and shared counter for Nevergrad
-        # This needs to be done in the main process before any child processes are spawned
-        # that might access it.
-        manager = None
-        repo_path_counter = None
-        if args.optimizer == "nevergrad":
-            manager = multiprocessing.Manager()
-            # Value(typecode, initial_value)
-            # 'i' for signed integer, initial value 0
-            repo_path_counter = manager.Value('i', 0)
-            print(f"Initialized multiprocessing manager and shared counter for Nevergrad.", file=sys.stderr)
-
+        # No need for multiprocessing.Manager or shared counter for Nevergrad anymore
+        # as the executor handles process management and repo path assignment is now
+        # based on the worker's process ID directly.
 
         print("\nStarting optimization...", file=sys.stderr)
 
@@ -294,8 +285,8 @@ def main():
                 lookups, # Pass the lookups object
                 ng_config, # Pass the Nevergrad config object
                 args.file_sample_percentage, # Pass file sampling percentage
-                RANDOM_SEED, # Pass the fixed random seed
-                repo_path_counter # Pass the shared counter for repo path assignment
+                RANDOM_SEED # Pass the fixed random seed
+                # repo_path_counter is no longer passed
             )
         else:
             print(f"Error: Unknown optimizer '{args.optimizer}'.", file=sys.stderr)
@@ -331,10 +322,7 @@ def main():
                 print(f"Error removing temporary directory '{temp_dir}': {e}", file=sys.stderr)
         print("Cleanup complete.", file=sys.stderr)
 
-        if manager:
-            manager.shutdown()
-            print("Multiprocessing manager shut down.", file=sys.stderr)
-
+        # No multiprocessing manager to shut down anymore
 
 if __name__ == "__main__":
     # Note: To run this main script after moving, you should typically run it
