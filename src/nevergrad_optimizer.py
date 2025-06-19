@@ -40,9 +40,10 @@ class NevergradOptimizer(BaseOptimizer):
         # Use the shared counter to get a unique index for the repo path
         # This ensures round-robin assignment of repo paths to Nevergrad's internal workers.
         if repo_path_counter_shared:
-            with repo_path_counter_shared.get_lock():
-                current_repo_idx = repo_path_counter_shared.value
-                repo_path_counter_shared.value = (repo_path_counter_shared.value + 1) % len(all_repo_paths)
+            # multiprocessing.Value objects are inherently thread-safe for their 'value' attribute.
+            # No explicit lock acquisition (like .get_lock()) is needed for atomic updates to 'value'.
+            current_repo_idx = repo_path_counter_shared.value
+            repo_path_counter_shared.value = (repo_path_counter_shared.value + 1) % len(all_repo_paths)
             repo_path_for_worker = all_repo_paths[current_repo_idx]
         else:
             # Fallback if no shared counter is provided (e.g., for direct testing without main.py setup)
