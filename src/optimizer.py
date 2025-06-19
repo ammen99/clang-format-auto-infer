@@ -382,7 +382,7 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
         print(f"Adjusted total population size to {total_population_size} to ensure at least {island_population_size} individuals per island.", file=sys.stderr)
     elif total_population_size < num_islands * MIN_INDIVIDUALS_PER_ISLAND:
         print(f"Warning: Total population size ({total_population_size}) is too small for {num_islands} islands "
-              f"with a minimum of {MIN_INDIVIDUALS_PER_INDIVIDUAL} individuals per island. "
+              f"with a minimum of {MIN_INDIVIDUALS_PER_ISLAND} individuals per island. "
               f"Each island will have {island_population_size} individuals.", file=sys.stderr)
 
 
