@@ -11,7 +11,7 @@ from src.config_loader import load_json_option_values, load_forced_options
 from src.clang_format_parser import get_clang_format_options, parse_clang_format_options, generate_clang_format_config
 from src.repo_formatter import run_clang_format_and_count_changes
 from src.optimizer import optimize_option_with_values # Import the specific function
-from src.data_classes import IslandEvolutionArgs, GeneticAlgorithmLookups # New imports for data classes
+from src.data_classes import IslandEvolutionArgs, GeneticAlgorithmLookups, WorkerContext # New imports for data classes
 
 # Fixed random seed for reproducibility of file sampling in tests
 RANDOM_SEED = 42
@@ -96,24 +96,27 @@ def main():
         option_name = option_to_test
         json_info = json_options_lookup[option_name]
 
-        # Create a dummy GeneticAlgorithmLookups object for the test IslandEvolutionArgs
-        # This is needed because IslandEvolutionArgs requires it, even if run_clang_format_and_count_changes
-        # doesn't directly use the lookups attribute.
+        # Create GeneticAlgorithmLookups object for IslandEvolutionArgs
         dummy_lookups = GeneticAlgorithmLookups(
-            json_options_lookup=json_options_lookup, # Pass actual lookups if needed by other parts of IslandEvolutionArgs
+            json_options_lookup=json_options_lookup,
             forced_options_lookup=forced_options_lookup
         )
 
-        # Create a dummy IslandEvolutionArgs object for the test calls
+        # Create IslandEvolutionArgs for the test (representing a single island)
         test_island_args = IslandEvolutionArgs(
             population=[], # Not relevant for this single call
             island_population_size=0, # Not relevant
-            repo_path=test_repo_path,
-            lookups=dummy_lookups, # Pass the dummy lookups
+            island_index=0, # Assign island index 0 for test
+            lookups=dummy_lookups,
             debug=True, # Use True for debug as per original call
             file_sample_percentage=100.0, # Default for test
-            random_seed=RANDOM_SEED, # Use the defined random seed
-            worker_id=0 # Assign worker_id 0 for test
+            random_seed=RANDOM_SEED # Use the defined random seed
+        )
+
+        # Create a WorkerContext for the test (representing the main process as worker 1)
+        test_worker_context = WorkerContext(
+            repo_path=test_repo_path,
+            process_id=1 # Main process can be considered worker 1 for testing
         )
 
         if option_name in forced_options_lookup:
@@ -148,7 +151,8 @@ def main():
                     test_options_config,
                     option_name,
                     possible_values,
-                    test_island_args # Pass the IslandEvolutionArgs object
+                    test_island_args, # Pass the IslandEvolutionArgs object
+                    test_worker_context # Pass the WorkerContext object
                 )
 
                 # After optimize_option_with_values completes, `test_options_config` holds the
@@ -158,7 +162,14 @@ def main():
                 final_config_string = generate_clang_format_config(test_options_config)
                 
                 # Update the call to run_clang_format_and_count_changes
-                final_changes = run_clang_format_and_count_changes(final_config_string, test_island_args)
+                final_changes = run_clang_format_and_count_changes(
+                    final_config_string,
+                    repo_path=test_worker_context.repo_path,
+                    process_id=test_worker_context.process_id,
+                    debug=test_island_args.debug,
+                    file_sample_percentage=test_island_args.file_sample_percentage,
+                    random_seed=test_island_args.random_seed
+                )
 
                 print(f"  Summary for '{option_name}':", file=sys.stderr)
                 print(f"    Original value: {original_value}", file=sys.stderr)

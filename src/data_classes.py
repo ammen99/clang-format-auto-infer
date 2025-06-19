@@ -24,12 +24,21 @@ class GeneticAlgorithmLookups:
 class IslandEvolutionArgs:
     """
     Arguments specific to evolving a single island for one generation.
+    These are passed to the worker process for a specific island's task.
     """
     population: List[Dict[str, Any]] # List of {'config': dict, 'fitness': float}
     island_population_size: int
-    repo_path: str # Specific repo path for this island's worker
+    island_index: int # The logical index of this island (0 to num_islands-1)
     lookups: GeneticAlgorithmLookups # Pass the lookups here
     debug: bool # Pass debug flag here
-    file_sample_percentage: float # New: Percentage of files to sample for fitness calculation
-    random_seed: int # New: Seed for random file sampling
-    worker_id: int # New: Identifier for the worker process
+    file_sample_percentage: float # Percentage of files to sample for fitness calculation
+    random_seed: int # Seed for random file sampling
+
+@dataclass
+class WorkerContext:
+    """
+    Context specific to the worker process executing a task.
+    This includes the unique temporary repository path and the worker's process ID.
+    """
+    repo_path: str # Specific repo path for this worker process
+    process_id: int # Unique identifier for the worker process (e.g., from multiprocessing.current_process()._identity[0])
