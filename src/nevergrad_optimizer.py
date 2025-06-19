@@ -249,9 +249,11 @@ class NevergradOptimizer(BaseOptimizer):
                     # Tell the optimizer the result
                     optimizer.tell(candidate, loss)
 
-                    # Update plot
-                    current_best_loss = optimizer.current_bests["average"].loss
-                    best_fitness_history.append(current_best_loss)
+                    # Update plot with the best fitness seen so far
+                    if not best_fitness_history:
+                        best_fitness_history.append(loss)
+                    else:
+                        best_fitness_history.append(min(best_fitness_history[-1], loss))
 
                     if plot_fitness and MATPLOTLIB_AVAILABLE and not interrupted:
                         assert ax is not None
