@@ -1,26 +1,33 @@
+from abc import ABC
 from dataclasses import dataclass
 from typing import List, Dict, Any
 
 @dataclass
-class OptimizationConfig:
+class BaseOptimizerConfig(ABC):
+    """
+    Base abstract class for all optimizer configuration dataclasses.
+    Ensures a common interface for configuration objects passed to BaseOptimizer.
+    """
+    debug: bool # Common debug flag for all optimizers
+
+@dataclass
+class OptimizationConfig(BaseOptimizerConfig): # Inherit from BaseOptimizerConfig
     """
     Configuration parameters for the genetic optimization algorithm.
     """
     num_iterations: int
     total_population_size: int
     num_islands: int
-    debug: bool
     plot_fitness: bool
 
 @dataclass
-class NevergradConfig:
+class NevergradConfig(BaseOptimizerConfig): # Inherit from BaseOptimizerConfig
     """
     Configuration parameters for the Nevergrad optimization algorithm.
     """
     budget: int
     optimizer_name: str
     num_workers: int
-    debug: bool
 
 @dataclass
 class GeneticAlgorithmLookups:

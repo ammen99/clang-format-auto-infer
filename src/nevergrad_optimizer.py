@@ -96,7 +96,7 @@ class NevergradOptimizer(BaseOptimizer):
                  base_options_info: Dict[str, Any],
                  repo_paths: List[str],
                  lookups: GeneticAlgorithmLookups,
-                 ng_config: NevergradConfig, # Use NevergradConfig here
+                 config: NevergradConfig, # Changed parameter name and type to NevergradConfig
                  file_sample_percentage: float,
                  random_seed: int) -> Dict[str, Any]:
         """
@@ -107,7 +107,7 @@ class NevergradOptimizer(BaseOptimizer):
             repo_paths (list): A list of paths to the temporary git repositories for parallel processing.
             lookups (GeneticAlgorithmLookups): A dataclass containing lookup dictionaries for
                                                option values and forced options.
-            ng_config (NevergradConfig): A dataclass containing configuration parameters
+            config (NevergradConfig): A dataclass containing configuration parameters
                                          for the Nevergrad algorithm.
             file_sample_percentage (float): Percentage of files to sample for fitness calculation.
             random_seed (int): Seed for random file sampling.
@@ -115,10 +115,11 @@ class NevergradOptimizer(BaseOptimizer):
         Returns:
             dict: The flat dictionary of the best clang-format configuration found.
         """
-        budget = ng_config.budget
-        optimizer_name = ng_config.optimizer_name
-        num_workers = ng_config.num_workers
-        debug = ng_config.debug
+        # Use 'config' directly, no need to rename to ng_config
+        budget = config.budget
+        optimizer_name = config.optimizer_name
+        num_workers = config.num_workers
+        debug = config.debug
 
         print(f"\nStarting Nevergrad optimization with {optimizer_name}...", file=sys.stderr)
         print(f"Budget: {budget}, Workers: {num_workers}", file=sys.stderr)

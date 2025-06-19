@@ -377,7 +377,7 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
                  base_options_info: Dict[str, Any],
                  repo_paths: List[str],
                  lookups: GeneticAlgorithmLookups,
-                 ga_config: OptimizationConfig,
+                 config: OptimizationConfig, # Changed parameter name and type to OptimizationConfig
                  file_sample_percentage: float,
                  random_seed: int) -> Dict[str, Any]:
         """
@@ -388,7 +388,7 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
             repo_paths (list): A list of paths to the temporary git repositories for parallel processing.
             lookups (GeneticAlgorithmLookups): A dataclass containing lookup dictionaries for
                                                option values and forced options.
-            ga_config (OptimizationConfig): A dataclass containing configuration parameters
+            config (OptimizationConfig): A dataclass containing configuration parameters
                                             for the genetic algorithm.
             file_sample_percentage (float): Percentage of files to sample for fitness calculation.
             random_seed (int): Seed for random file sampling.
@@ -396,12 +396,12 @@ class GeneticAlgorithmOptimizer(BaseOptimizer):
         Returns:
             dict: The flat dictionary of the best clang-format configuration found.
         """
-        # Unpack from ga_config
-        num_iterations = ga_config.num_iterations
-        total_population_size = ga_config.total_population_size
-        num_islands = ga_config.num_islands
-        debug = ga_config.debug
-        plot_fitness = ga_config.plot_fitness
+        # Use 'config' directly, no need to rename to ga_config
+        num_iterations = config.num_iterations
+        total_population_size = config.total_population_size
+        num_islands = config.num_islands
+        debug = config.debug
+        plot_fitness = config.plot_fitness
 
         if num_islands < 1:
             print("Error: Number of islands must be at least 1. Setting to 1.", file=sys.stderr)
