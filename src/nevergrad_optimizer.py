@@ -172,7 +172,8 @@ class NevergradOptimizer(BaseOptimizer):
 
         # 2. Create the Nevergrad optimizer
         try:
-            optimizer = ng.optimizers.registry[optimizer_name](instrumentation=instrumentation, budget=budget, num_workers=num_workers)
+            # Removed 'instrumentation' from the constructor call
+            optimizer = ng.optimizers.registry[optimizer_name](budget=budget, num_workers=num_workers)
         except KeyError:
             print(f"Error: Nevergrad optimizer '{optimizer_name}' not found. Available optimizers: {list(ng.optimizers.registry.keys())}", file=sys.stderr)
             sys.exit(1)
@@ -194,7 +195,10 @@ class NevergradOptimizer(BaseOptimizer):
                 debug=debug,
                 file_sample_percentage=file_sample_percentage,
                 random_seed=random_seed,
-                all_repo_paths=repo_paths # Pass the list of all repo paths
+                all_repo_paths=repo_paths, # Pass the list of all repo paths
+                # The instrumentation is implicitly handled by Nevergrad's minimize method
+                # which passes the parameters defined by 'instrumentation' to the objective function.
+                # We do not pass 'instrumentation' as a direct keyword argument here.
             )
         except KeyboardInterrupt:
             print("\nCtrl-C detected. Terminating Nevergrad optimization immediately...", file=sys.stderr)
