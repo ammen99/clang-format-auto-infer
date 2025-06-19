@@ -19,7 +19,7 @@ except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
 
-def optimize_option_with_values(flat_options_info, full_option_path, repo_path, possible_values, debug=False, file_sample_percentage=100.0, random_seed=None) -> float:
+def optimize_option_with_values(flat_options_info, full_option_path, repo_path, possible_values, debug=False, file_sample_percentage=100.0, random_seed=None, worker_id: int = 0) -> float:
     """
     Optimizes a single option by testing each value in the provided list.
     If multiple values yield the same minimum changes, one is randomly selected.
@@ -34,6 +34,7 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
         debug (bool): Enable debug output.
         file_sample_percentage (float): Percentage of files to sample for fitness calculation.
         random_seed (int, optional): Seed for random file sampling.
+        worker_id (int): Identifier for the worker process, used for logging.
 
     Returns:
         float: The minimum number of changes (fitness) achieved by the best value for this option.
@@ -42,8 +43,9 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
     option_info = flat_options_info[full_option_path]
     original_value = option_info['value'] # Store original value
 
-    print(f"\nOptimizing '{full_option_path}' (current: {original_value})...", file=sys.stderr)
-    print(f"  Testing values: {possible_values}", file=sys.stderr)
+    if debug:
+        print(f"Worker {worker_id}: Optimizing '{full_option_path}' (current: {original_value})...", file=sys.stderr)
+        print(f"Worker {worker_id}:   Testing values: {possible_values}", file=sys.stderr)
 
     min_changes = float('inf')
     best_values_candidates = [] # Store all values that achieve min_changes
@@ -71,7 +73,7 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
              try:
                  value_to_test = int(value_to_test)
              except (ValueError, TypeError):
-                 print(f"Warning: Could not convert value '{value_to_test}' to int for option '{full_option_path}'. Skipping.", file=sys.stderr)
+                 print(f"Worker {worker_id}: Warning: Could not convert value '{value_to_test}' to int for option '{full_option_path}'. Skipping.", file=sys.stderr)
                  continue # Skip this value
 
         # Add other type conversions if necessary (e.g., float, list, etc.)
@@ -88,13 +90,14 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
             config_string,
             debug=debug,
             file_sample_percentage=file_sample_percentage, # Pass new arg
-            random_seed=random_seed # Pass new arg
+            random_seed=random_seed, # Pass new arg
+            worker_id=worker_id # Pass worker_id
         )
 
         # We now consider float('inf') as a valid (but high) result, not an error to skip
         if changes != -1: # Only skip if it's a git-related error (-1)
             # Treat float('inf') as a very high change count
-            print(f"    Changes with {value_to_test}: {changes}", file=sys.stderr)
+            print(f"Worker {worker_id}:   Testing '{full_option_path}'='{value_to_test}' -> Changes: {changes}", file=sys.stderr)
             if changes < min_changes:
                 min_changes = changes
                 best_values_candidates = [value_to_test] # New best found, reset list
@@ -111,14 +114,14 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
     if not best_values_candidates:
         # This happens if all tested values resulted in either a git error (-1) or an invalid clang-format config (float('inf')).
         # In this case, we keep the original value as we couldn't find a better valid one.
-        print(f"  All tests failed or resulted in invalid configurations for '{full_option_path}'. Keeping original value: {original_value}", file=sys.stderr)
+        print(f"Worker {worker_id}: All tests failed or resulted in invalid configurations for '{full_option_path}'. Keeping original value: {original_value}", file=sys.stderr)
         # Restore the original config state if no valid candidate was found
         flat_options_info.update(original_config_state)
         return float('inf') # Indicate that no valid fitness was found for this mutation
     else:
         # Randomly select one of the best values
         best_value = random.choice(best_values_candidates)
-        print(f"  Best value for '{full_option_path}': {best_value} (changes: {min_changes})", file=sys.stderr)
+        print(f"Worker {worker_id}: Best value for '{full_option_path}': {best_value} (changes: {min_changes})", file=sys.stderr)
         flat_options_info[full_option_path]['value'] = best_value
         return min_changes
 
@@ -138,7 +141,7 @@ def crossover(parent1_config, parent2_config):
             child_config[option_path] = copy.deepcopy(parent2_config[option_path])
     return child_config
 
-def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, debug: bool, file_sample_percentage: float, random_seed: int) -> Tuple[dict, float]:
+def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, debug: bool, file_sample_percentage: float, random_seed: int, worker_id: int) -> Tuple[dict, float]:
     """
     Mutates an individual by selecting one random mutable option and optimizing its value
     by testing all possible values using optimize_option_with_values.
@@ -150,6 +153,7 @@ def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, 
         debug (bool): Enable debug output.
         file_sample_percentage (float): Percentage of files to sample for fitness calculation.
         random_seed (int): Seed for random file sampling.
+        worker_id (int): Identifier for the worker process, used for logging.
 
     Returns:
         tuple[dict, float]: A tuple containing the mutated configuration and its fitness.
@@ -176,7 +180,7 @@ def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, 
 
     if not mutable_options:
         if debug:
-            print("No mutable options found for mutation. Returning original config and its fitness.", file=sys.stderr)
+            print(f"Worker {worker_id}: No mutable options found for mutation. Returning original config and its fitness.", file=sys.stderr)
         # If no mutable options, return the original config and a very high fitness
         # to indicate no beneficial mutation occurred.
         return mutated_config, float('inf')
@@ -195,10 +199,11 @@ def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, 
         # This case should ideally not be reached if mutable_options logic is correct,
         # but as a safeguard, if an option was somehow added to mutable_options without values.
         if debug:
-            print(f"Warning: Selected option '{option_to_mutate_path}' for mutation but found no possible values. Returning original config and inf fitness.", file=sys.stderr)
+            print(f"Worker {worker_id}: Warning: Selected option '{option_to_mutate_path}' for mutation but found no possible values. Returning original config and inf fitness.", file=sys.stderr)
         return mutated_config, float('inf') # No values to test, effectively no mutation
 
-    print(f"  Mutating '{option_to_mutate_path}' (current: {option_info['value']})...", file=sys.stderr)
+    if debug:
+        print(f"Worker {worker_id}: Mutating '{option_to_mutate_path}' (current: {option_info['value']})...", file=sys.stderr)
     # Use the existing optimize_option_with_values to find the best value for this single option.
     # It modifies `mutated_config` in place and returns the fitness of the resulting config.
     mutated_fitness = optimize_option_with_values(
@@ -208,7 +213,8 @@ def mutate(individual_config, repo_path: str, lookups: GeneticAlgorithmLookups, 
         possible_values,
         debug=debug,
         file_sample_percentage=file_sample_percentage, # Pass new arg
-        random_seed=random_seed # Pass new arg
+        random_seed=random_seed, # Pass new arg
+        worker_id=worker_id # Pass worker_id
     )
 
     return mutated_config, mutated_fitness
@@ -232,6 +238,7 @@ def _evolve_island_generation_task(island_evolution_args: IslandEvolutionArgs):
     debug = island_evolution_args.debug
     file_sample_percentage = island_evolution_args.file_sample_percentage # New arg
     random_seed = island_evolution_args.random_seed # New arg
+    worker_id = island_evolution_args.worker_id # New arg
 
     new_generation_candidates = []
 
@@ -254,7 +261,7 @@ def _evolve_island_generation_task(island_evolution_args: IslandEvolutionArgs):
             parent1 = population[0]['config'] if population else {}
             child_config = copy.deepcopy(parent1)
             if debug:
-                print("Warning: Island population too small for crossover. Mutating a copy of the best individual.", file=sys.stderr)
+                print(f"Worker {worker_id}: Warning: Island population too small for crossover. Mutating a copy of the best individual.", file=sys.stderr)
         else:
             parent1 = random.choice(population)['config']
             parent2 = random.choice(population)['config']
@@ -268,7 +275,8 @@ def _evolve_island_generation_task(island_evolution_args: IslandEvolutionArgs):
             lookups,
             debug,
             file_sample_percentage=file_sample_percentage,
-            random_seed=random_seed
+            random_seed=random_seed,
+            worker_id=worker_id # Pass worker_id
         )
         
         new_generation_candidates.append({'config': mutated_child_config, 'fitness': child_fitness})
@@ -402,12 +410,14 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
         print("Error: No repository paths provided for initialization.", file=sys.stderr)
         return {} # Or raise an error
 
+    # Use worker_id 0 for the initial base fitness calculation
     base_fitness = run_clang_format_and_count_changes(
         initial_repo_path,
         generate_clang_format_config(base_individual_config),
         debug=debug,
         file_sample_percentage=file_sample_percentage, # Pass new arg
-        random_seed=random_seed # Pass new arg
+        random_seed=random_seed, # Pass new arg
+        worker_id=0 # Assign worker_id 0 for initial calculation
     )
     print(f"Initial base configuration fitness: {base_fitness}", file=sys.stderr)
 
@@ -477,6 +487,7 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
             for i, island_pop in enumerate(populations):
                 # Cycle through repo_paths to assign one to each island's task
                 repo_path_for_island = repo_paths[i % num_processes]
+                worker_id_for_island = i % num_processes # Assign worker ID based on repo path index
                 tasks_args.append(IslandEvolutionArgs(
                     population=island_pop,
                     island_population_size=island_population_size,
@@ -484,7 +495,8 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
                     lookups=lookups,
                     debug=debug,
                     file_sample_percentage=file_sample_percentage, # Pass new arg
-                    random_seed=random_seed # Pass new arg
+                    random_seed=random_seed, # Pass new arg
+                    worker_id=worker_id_for_island # Pass worker_id
                 ))
 
             # Run island evolutions in parallel

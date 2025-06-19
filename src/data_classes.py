@@ -32,3 +32,4 @@ class IslandEvolutionArgs:
     debug: bool # Pass debug flag here
     file_sample_percentage: float # New: Percentage of files to sample for fitness calculation
     random_seed: int # New: Seed for random file sampling
+    worker_id: int # New: Identifier for the worker process
