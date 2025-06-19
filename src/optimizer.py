@@ -544,7 +544,7 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
         print("\nCtrl-C detected. Terminating optimization immediately...", file=sys.stderr)
         interrupted = True
         # Close matplotlib plots if they are open
-        global plt, MATPLOTLIB_AVAILABLE
+        # Removed 'global plt, MATPLOTLIB_AVAILABLE' as they are already global and only accessed here.
         if MATPLOTLIB_AVAILABLE and plt:
             try:
                 plt.close('all')
