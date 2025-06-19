@@ -1,7 +1,6 @@
 import sys
 import copy
 import random
-import signal
 import multiprocessing
 from typing import List
 
@@ -18,49 +17,6 @@ try:
 except ImportError:
     print("Warning: matplotlib not found. Fitness plotting will be disabled. Install with 'pip install matplotlib' to enable.", file=sys.stderr)
     MATPLOTLIB_AVAILABLE = False
-
-# Global flag for main process (for signal handler and main loop checks)
-_stop_optimization_flag = False
-
-# Shared event for multiprocessing workers, declared global here
-_mp_stop_event = None # Will be initialized in genetic_optimize_all_options
-
-# Global event for worker processes, set by pool initializer
-_worker_stop_event = None
-
-def _worker_init(stop_event):
-    """
-    Initializer function for multiprocessing pool workers.
-    Sets a global event in each worker process.
-    """
-    global _worker_stop_event
-    _worker_stop_event = stop_event
-
-def _signal_handler(sig, frame):
-    """
-    Signal handler for SIGINT (Ctrl-C).
-    Sets a global flag to stop the optimization loop gracefully.
-    Also sets a multiprocessing event to signal worker processes.
-    """
-    global _stop_optimization_flag, _mp_stop_event # Declare global usage
-    _stop_optimization_flag = True
-    if _mp_stop_event: # Check if it has been initialized
-        _mp_stop_event.set()
-    
-    # Close matplotlib plots if they are open
-    global plt, MATPLOTLIB_AVAILABLE
-    if MATPLOTLIB_AVAILABLE and plt:
-        try:
-            plt.close('all')
-            print("Matplotlib plots closed.", file=sys.stderr)
-        except Exception as e:
-            print(f"Warning: Could not close matplotlib plots: {e}", file=sys.stderr)
-
-    del sig, frame # Suppress unused argument warning
-    print("\nCtrl-C detected. Stopping optimization gracefully...", file=sys.stderr)
-
-# Register the signal handler when the module is loaded
-signal.signal(signal.SIGINT, _signal_handler)
 
 
 def optimize_option_with_values(flat_options_info, full_option_path, repo_path, possible_values, debug=False, file_sample_percentage=100.0, random_seed=None):
@@ -88,13 +44,6 @@ def optimize_option_with_values(flat_options_info, full_option_path, repo_path, 
     best_values_candidates = [] # Store all values that achieve min_changes
 
     for value_to_test in possible_values:
-        # Check for stop flag before each test
-        global _worker_stop_event # Access the global worker event
-        if _worker_stop_event and _worker_stop_event.is_set(): # type: ignore
-            print(f"  Optimization interrupted for '{full_option_path}'. Keeping original value.", file=sys.stderr)
-            flat_options_info[full_option_path]['value'] = original_value # Restore original if interrupted
-            return # Exit early from this function
-
         # Ensure the value type matches the expected type from dump-config
         # Simple type conversion for common types
         if option_info['type'] == 'bool':
@@ -292,11 +241,6 @@ def _evolve_island_generation_task(island_evolution_args: IslandEvolutionArgs):
         num_to_generate = 0
 
     for _ in range(num_to_generate):
-        global _worker_stop_event # Access the global worker event
-        if _worker_stop_event and _worker_stop_event.is_set(): # type: ignore
-            print("  Evolution interrupted for current island.", file=sys.stderr)
-            break # Break from this inner loop
-
         # Selection: Simple random selection for parents from the current population
         if len(population) < 2:
             parent1 = population[0]['config'] if population else {}
@@ -422,17 +366,12 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
     Returns:
         dict: The flat dictionary of the best clang-format configuration found.
     """
-    global _stop_optimization_flag, _mp_stop_event # Declare global usage
-
     # Unpack from ga_config
     num_iterations = ga_config.num_iterations
     total_population_size = ga_config.total_population_size
     num_islands = ga_config.num_islands
     debug = ga_config.debug
     plot_fitness = ga_config.plot_fitness
-
-    _stop_optimization_flag = False # Reset local flag for a new run
-    _mp_stop_event = multiprocessing.Event() # Initialize the shared event here
 
     if num_islands < 1:
         print("Error: Number of islands must be at least 1. Setting to 1.", file=sys.stderr)
@@ -482,16 +421,11 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
     for i in range(num_islands):
         island_pop = []
         for _ in range(island_population_size):
-            if _stop_optimization_flag: # Check flag during initialization too
-                print("Initialization interrupted.", file=sys.stderr)
-                break
             # All initial individuals are identical to the base config
             individual_config = copy.deepcopy(base_individual_config)
             island_pop.append({'config': individual_config, 'fitness': base_fitness})
             # No need to print fitness for each, as it's the same
         populations.append(island_pop)
-        if _stop_optimization_flag:
-            break # Break outer loop if initialization was interrupted
 
     # Find the best individual in the initial overall population (which is just the base_fitness)
     best_overall_individual = {'config': base_individual_config, 'fitness': base_fitness}
@@ -535,15 +469,13 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
     # Create the multiprocessing pool
     # The number of processes in the pool is limited by the number of available repo copies
     num_processes = len(repo_paths)
-    pool = multiprocessing.Pool(processes=num_processes, initializer=_worker_init, initargs=(_mp_stop_event,))
+    pool = multiprocessing.Pool(processes=num_processes)
+
+    interrupted = False # Flag to indicate if optimization was interrupted by Ctrl-C
 
     try:
         # Evolution Loop
         for iteration in range(num_iterations):
-            if _stop_optimization_flag: # Check local flag for main loop
-                print("\nOptimization loop interrupted by user.", file=sys.stderr)
-                break # Exit the main optimization loop
-
             print(f"\n--- Iteration {iteration + 1}/{num_iterations} ---", file=sys.stderr)
 
             # Prepare arguments for each island's evolution task
@@ -579,7 +511,7 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
                     print(f"    New overall best fitness found: {best_overall_individual['fitness']}", file=sys.stderr)
 
             # Update plot after all islands have evolved in this iteration
-            if plot_fitness and not _stop_optimization_flag: # Only update if not interrupted
+            if plot_fitness and not interrupted: # Only update if not interrupted
                 assert ax is not None
                 assert fig is not None
                 assert plt is not None
@@ -592,7 +524,7 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
                 plt.pause(0.01) # Short pause to allow plot to update
 
             # Perform migration periodically if there's more than one island
-            if num_islands > 1 and (iteration + 1) % MIGRATION_INTERVAL == 0 and not _stop_optimization_flag:
+            if num_islands > 1 and (iteration + 1) % MIGRATION_INTERVAL == 0 and not interrupted:
                 print(f"\n--- Performing migration at iteration {iteration + 1} ---", file=sys.stderr)
                 _perform_migration(populations, debug)
 
@@ -608,10 +540,21 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
                 else:
                     print("Warning: All populations are empty after migration. This should not happen.", file=sys.stderr)
 
+    except KeyboardInterrupt:
+        print("\nCtrl-C detected. Terminating optimization immediately...", file=sys.stderr)
+        interrupted = True
+        # Close matplotlib plots if they are open
+        global plt, MATPLOTLIB_AVAILABLE
+        if MATPLOTLIB_AVAILABLE and plt:
+            try:
+                plt.close('all')
+                print("Matplotlib plots closed.", file=sys.stderr)
+            except Exception as e:
+                print(f"Warning: Could not close matplotlib plots: {e}", file=sys.stderr)
 
     finally:
-        if _stop_optimization_flag:
-            print("\nForcing termination of worker pool due to interruption...", file=sys.stderr)
+        if interrupted:
+            print("Forcing termination of worker pool...", file=sys.stderr)
             pool.terminate() # Terminate workers immediately
         else:
             pool.close() # Allow workers to finish current tasks gracefully
@@ -622,7 +565,7 @@ def genetic_optimize_all_options(base_options_info, repo_paths: List[str], looku
     print(f"\nGenetic algorithm finished. Best overall fitness: {best_overall_individual['fitness']}", file=sys.stderr)
 
     # Keep the plot open at the end if it was generated AND optimization was not interrupted
-    if plot_fitness and MATPLOTLIB_AVAILABLE and not _stop_optimization_flag:
+    if plot_fitness and MATPLOTLIB_AVAILABLE and not interrupted:
         assert plt is not None
         plt.ioff()
         plt.show()
