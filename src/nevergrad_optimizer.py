@@ -37,22 +37,10 @@ class NevergradOptimizer(BaseOptimizer):
         runs clang-format, and returns the number of changes.
         This function is designed to be picklable for multiprocessing.
         """
-        # Determine the worker's specific repo_path and process_id
-        # Use the shared counter to get a unique index for the repo path
-        # This ensures round-robin assignment of repo paths to Nevergrad's internal workers.
-        if repo_path_counter_shared:
-            # multiprocessing.Value objects are inherently thread-safe for their 'value' attribute.
-            # No explicit lock acquisition (like .get_lock()) is needed for atomic updates to 'value'.
-            current_repo_idx = repo_path_counter_shared.value
-            repo_path_counter_shared.value = (repo_path_counter_shared.value + 1) % len(all_repo_paths)
-            repo_path_for_worker = all_repo_paths[current_repo_idx]
-        else:
-            # Fallback if no shared counter is provided (e.g., for direct testing without main.py setup)
-            # This will use the old logic, potentially leading to the "run sequentially" warning.
-            process_id_raw = multiprocessing.current_process()._identity[0] if multiprocessing.current_process()._identity else 0
-            repo_path_for_worker = all_repo_paths[process_id_raw - 1] if process_id_raw > 0 else all_repo_paths[0]
-            if debug:
-                print(f"Worker {process_id_raw}: No shared counter. Using process ID based repo selection: {repo_path_for_worker}", file=sys.stderr)
+        process_id_raw = multiprocessing.current_process()._identity[0] if multiprocessing.current_process()._identity else 0
+        repo_path_for_worker = all_repo_paths[process_id_raw - 2] if process_id_raw > 0 else all_repo_paths[0]
+        if debug:
+            print(f"Worker {process_id_raw}: No shared counter. Using process ID based repo selection: {repo_path_for_worker}", file=sys.stderr)
 
         # The process_id here is primarily for logging and identifying the OS process.
         process_id = multiprocessing.current_process()._identity[0] if multiprocessing.current_process()._identity else 0
