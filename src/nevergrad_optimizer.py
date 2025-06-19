@@ -25,7 +25,6 @@ class NevergradOptimizer(BaseOptimizer):
         file_sample_percentage: float,
         random_seed: int,
         all_repo_paths: List[str],
-        # repo_path_counter_shared is no longer needed
         # Nevergrad passes parameters as keyword arguments based on instrumentation
         # These are the parameters from the search space (e.g., AlignAfterOpenBracket=value)
         **ng_params, # This must be the last argument
@@ -40,13 +39,13 @@ class NevergradOptimizer(BaseOptimizer):
         # The process_id here is primarily for logging and identifying the OS process.
         # Nevergrad's ProcessPoolExecutor assigns unique _identity[0] to each worker.
         process_id = multiprocessing.current_process()._identity[0] if multiprocessing.current_process()._identity else 0
-        
+
         # Select the dedicated repo path for this worker based on its process ID
         # Nevergrad's workers typically start with _identity[0] = 1, 2, ...
         # So, process_id - 1 maps to the correct index in all_repo_paths.
         # If process_id is 0 (e.g., main process for a single worker setup or direct call), use index 0.
         repo_path_for_worker = all_repo_paths[process_id - 1] if process_id > 0 else all_repo_paths[0]
-        
+
         if debug:
             print(f"Worker {process_id}: Using repo path: {repo_path_for_worker}", file=sys.stderr)
 
@@ -105,7 +104,6 @@ class NevergradOptimizer(BaseOptimizer):
                  config: NevergradConfig,
                  file_sample_percentage: float,
                  random_seed: int,
-                 # repo_path_counter_shared is no longer needed
                  ) -> Dict[str, Any]:
         """
         Optimizes clang-format configuration using Nevergrad.
@@ -191,7 +189,6 @@ class NevergradOptimizer(BaseOptimizer):
                 file_sample_percentage=file_sample_percentage,
                 random_seed=random_seed, # random_seed is still passed here for file sampling
                 all_repo_paths=repo_paths,
-                # repo_path_counter_shared is no longer passed
             )
 
             # Create a ProcessPoolExecutor for Nevergrad to use for parallel evaluations
@@ -201,7 +198,7 @@ class NevergradOptimizer(BaseOptimizer):
 
             recommendation = optimizer.minimize(
                 objective_with_context, # Pass the partially applied objective function
-                executor=executor # Explicitly pass the executor for parallelization
+                executor=executor # type: ignore
             )
         except KeyboardInterrupt:
             print("\nCtrl-C detected. Terminating Nevergrad optimization immediately...", file=sys.stderr)
