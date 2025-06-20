@@ -141,7 +141,6 @@ class NevergradOptimizer(BaseOptimizer):
 
         print(f"\nStarting Nevergrad optimization with {optimizer_name}...", file=sys.stderr)
         print(f"Budget: {budget}, Workers: {num_workers}", file=sys.stderr)
-        pending_parameters: Dict[concurrent.futures.Future, ng.p.Parameter] = {}
 
         # 1. Build Nevergrad Instrumentation
         # This defines the search space for Nevergrad
@@ -190,7 +189,6 @@ class NevergradOptimizer(BaseOptimizer):
             sys.exit(1)
 
         # 3. Run the optimization using ask/tell loop
-        executor = None
         best_fitness_history = [] # To store best fitness over evaluations
         fig = None
         ax = None
@@ -216,6 +214,10 @@ class NevergradOptimizer(BaseOptimizer):
             print("Plotting requested but matplotlib is not available. Skipping plot.", file=sys.stderr)
             plot_fitness = False # Disable plotting for the rest of the function
 
+        executor = None # Initialize executor to None
+        pending_futures: Dict[concurrent.futures.Future, ng.p.Parameter] = {}
+        current_eval_count = 0
+
         try:
             # Use functools.partial to bind the static context arguments to the objective function
             objective_with_context = functools.partial(
@@ -233,38 +235,41 @@ class NevergradOptimizer(BaseOptimizer):
             executor = concurrent.futures.ProcessPoolExecutor(max_workers=num_workers)
             print(f"Nevergrad: Using ProcessPoolExecutor with {num_workers} workers.", file=sys.stderr)
 
-            # Ask/Tell loop for optimization
-            current_eval_count = 0
-            while current_eval_count < budget and not interrupted:
-                # Ask for up to num_workers candidates or until budget is met
-                num_to_ask = min(num_workers, budget - current_eval_count)
-
-                pending_parameters: Dict[concurrent.futures.Future, ng.p.Parameter] = {}
-
-                for _ in range(num_to_ask):
-                    if interrupted:
-                        break
+            # Initial population of workers
+            for _ in range(num_workers):
+                if current_eval_count < budget:
                     candidate = optimizer.ask()
                     future = executor.submit(objective_with_context, **candidate.kwargs)
-                    pending_parameters[future] = candidate
+                    pending_futures[future] = candidate
                     current_eval_count += 1
+                    if debug:
+                        print(f"Nevergrad: Submitted initial task. Active tasks: {len(pending_futures)}/{num_workers}. Total evaluations: {current_eval_count}/{budget}", file=sys.stderr)
+                else:
+                    break # Budget reached
 
-                # Process results as they complete
-                for completed_future in concurrent.futures.as_completed(pending_parameters.keys()):
-                    if interrupted:
-                        break # Stop processing if interrupted
+            # Main ask/tell loop: continue as long as there are pending tasks or budget allows new ones
+            while (current_eval_count < budget or pending_futures) and not interrupted:
+                if not pending_futures and current_eval_count >= budget:
+                    # No more tasks to run and budget is exhausted
+                    break
+
+                # Wait for at least one future to complete
+                # If there are no pending futures but budget is not exhausted, this will block indefinitely.
+                # The outer while condition handles this by ensuring pending_futures is not empty if budget is not exhausted.
+                done, _ = concurrent.futures.wait(pending_futures.keys(), return_when=concurrent.futures.FIRST_COMPLETED)
+
+                for completed_future in done:
+                    candidate = pending_futures.pop(completed_future) # Remove from pending
                     try:
                         loss = completed_future.result()
-                        optimizer.tell(pending_parameters[completed_future], loss)
+                        optimizer.tell(candidate, loss)
+
+                        # Update best fitness history with the best loss found by the optimizer so far
+                        best_loss_so_far = optimizer.current_bests["average"].loss
+                        best_fitness_history.append(best_loss_so_far)
 
                         if debug:
-                            print(f"Nevergrad: Evaluation {len(best_fitness_history) + 1} (current budget: {current_eval_count}/{budget}) - Loss: {loss}", file=sys.stderr)
-
-                        # Update plot with the best fitness seen so far
-                        if not best_fitness_history:
-                            best_fitness_history.append(loss)
-                        else:
-                            best_fitness_history.append(loss)
+                            print(f"Nevergrad: Evaluation {len(best_fitness_history)} (Loss: {loss}, Best so far: {best_loss_so_far})", file=sys.stderr)
 
                         if plot_fitness and MATPLOTLIB_AVAILABLE and not interrupted:
                             assert ax is not None
@@ -281,18 +286,24 @@ class NevergradOptimizer(BaseOptimizer):
                     except KeyboardInterrupt:
                         print("\nCtrl-C detected during evaluation. Terminating Nevergrad optimization immediately...", file=sys.stderr)
                         interrupted = True
-                        break # Break from as_completed loop
+                        break # Break from processing completed futures
                     except Exception as e:
                         print(f"Nevergrad: Error during evaluation: {e}", file=sys.stderr)
                         # Tell Nevergrad about the error with a high loss to penalize it
-                        # This prevents the optimizer from getting stuck on problematic configurations
-                        optimizer.tell(pending_parameters[completed_future], float('inf'))
-                        # Continue to the next iteration in as_completed, but don't break the outer loop
-                        continue
+                        optimizer.tell(candidate, float('inf'))
+                        # Continue to the next completed future, don't break the outer loop
 
-                # If interrupted during the inner loops, break the outer while loop too
                 if interrupted:
-                    break
+                    break # Break from main while loop if interrupted
+
+                # Submit new tasks if budget allows and workers are free
+                while len(pending_futures) < num_workers and current_eval_count < budget:
+                    candidate = optimizer.ask()
+                    future = executor.submit(objective_with_context, **candidate.kwargs)
+                    pending_futures[future] = candidate
+                    current_eval_count += 1
+                    if debug:
+                        print(f"Nevergrad: Submitted new task. Active tasks: {len(pending_futures)}/{num_workers}. Total evaluations: {current_eval_count}/{budget}", file=sys.stderr)
 
             recommendation = optimizer.provide_recommendation()
 
@@ -310,11 +321,10 @@ class NevergradOptimizer(BaseOptimizer):
         finally:
             if executor:
                 print("Shutting down Nevergrad's ProcessPoolExecutor...", file=sys.stderr)
-                # If interrupted, cancel remaining futures and then shutdown
-                if interrupted:
-                    for future in pending_parameters.keys(): # Use the last state of pending_evaluations
-                        future.cancel()
-                executor.shutdown(wait=True) # Wait for current tasks to complete
+                # Cancel remaining futures before shutdown
+                for future in pending_futures.keys():
+                    future.cancel()
+                executor.shutdown(wait=True)
                 print("Nevergrad's ProcessPoolExecutor shut down.", file=sys.stderr)
 
             # Close matplotlib plots if they are open and not already closed by interrupt handler
