@@ -2,7 +2,7 @@ import nevergrad as ng
 import sys
 import copy
 import multiprocessing
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any
 import functools
 import concurrent.futures
 
@@ -141,6 +141,7 @@ class NevergradOptimizer(BaseOptimizer):
 
         print(f"\nStarting Nevergrad optimization with {optimizer_name}...", file=sys.stderr)
         print(f"Budget: {budget}, Workers: {num_workers}", file=sys.stderr)
+        pending_parameters: Dict[concurrent.futures.Future, ng.p.Parameter] = {}
 
         # 1. Build Nevergrad Instrumentation
         # This defines the search space for Nevergrad
@@ -167,9 +168,7 @@ class NevergradOptimizer(BaseOptimizer):
                 # For other types (lists, dicts) or strings without possible values,
                 # we fix them to their base value. They are not part of the search space.
                 # This means they are implicitly handled by `base_options_template` in the objective function.
-                if debug:
-                    print(f"Nevergrad: Skipping instrumentation for '{full_option_path}' (type: {option_info['type']}, no possible values or complex type). Will use its base value.", file=sys.stderr)
-                pass # Do not add to instrumentation_params
+                print(f"Nevergrad: Skipping instrumentation for '{full_option_path}' (type: {option_info['type']}, no possible values or complex type). Will use its base value.", file=sys.stderr)
 
         # Create the instrumentation object
         instrumentation = ng.p.Instrumentation(**instrumentation_params)
@@ -239,25 +238,24 @@ class NevergradOptimizer(BaseOptimizer):
             while current_eval_count < budget and not interrupted:
                 # Ask for up to num_workers candidates or until budget is met
                 num_to_ask = min(num_workers, budget - current_eval_count)
-                
-                pending_evaluations: List[Tuple[ng.p.Parameter, concurrent.futures.Future]] = []
+
+                pending_parameters: Dict[concurrent.futures.Future, ng.p.Parameter] = {}
 
                 for _ in range(num_to_ask):
                     if interrupted:
                         break
                     candidate = optimizer.ask()
                     future = executor.submit(objective_with_context, **candidate.kwargs)
-                    pending_evaluations.append((candidate, future))
+                    pending_parameters[future] = candidate
                     current_eval_count += 1
 
                 # Process results as they complete
-                for completed_candidate, completed_future in concurrent.futures.as_completed(pending_evaluations):
+                for completed_future in concurrent.futures.as_completed(pending_parameters.keys()):
                     if interrupted:
                         break # Stop processing if interrupted
-
                     try:
                         loss = completed_future.result()
-                        optimizer.tell(completed_candidate, loss)
+                        optimizer.tell(pending_parameters[completed_future], loss)
 
                         if debug:
                             print(f"Nevergrad: Evaluation {len(best_fitness_history) + 1} (current budget: {current_eval_count}/{budget}) - Loss: {loss}", file=sys.stderr)
@@ -266,7 +264,7 @@ class NevergradOptimizer(BaseOptimizer):
                         if not best_fitness_history:
                             best_fitness_history.append(loss)
                         else:
-                            best_fitness_history.append(min(best_fitness_history[-1], loss))
+                            best_fitness_history.append(loss)
 
                         if plot_fitness and MATPLOTLIB_AVAILABLE and not interrupted:
                             assert ax is not None
@@ -288,10 +286,10 @@ class NevergradOptimizer(BaseOptimizer):
                         print(f"Nevergrad: Error during evaluation: {e}", file=sys.stderr)
                         # Tell Nevergrad about the error with a high loss to penalize it
                         # This prevents the optimizer from getting stuck on problematic configurations
-                        optimizer.tell(completed_candidate, float('inf'))
+                        optimizer.tell(pending_parameters[completed_future], float('inf'))
                         # Continue to the next iteration in as_completed, but don't break the outer loop
                         continue
-                
+
                 # If interrupted during the inner loops, break the outer while loop too
                 if interrupted:
                     break
@@ -314,7 +312,7 @@ class NevergradOptimizer(BaseOptimizer):
                 print("Shutting down Nevergrad's ProcessPoolExecutor...", file=sys.stderr)
                 # If interrupted, cancel remaining futures and then shutdown
                 if interrupted:
-                    for _, future in pending_evaluations: # Use the last state of pending_evaluations
+                    for future in pending_parameters.keys(): # Use the last state of pending_evaluations
                         future.cancel()
                 executor.shutdown(wait=True) # Wait for current tasks to complete
                 print("Nevergrad's ProcessPoolExecutor shut down.", file=sys.stderr)
