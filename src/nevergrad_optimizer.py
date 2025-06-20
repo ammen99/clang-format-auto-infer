@@ -235,17 +235,22 @@ class NevergradOptimizer(BaseOptimizer):
             executor = concurrent.futures.ProcessPoolExecutor(max_workers=num_workers)
             print(f"Nevergrad: Using ProcessPoolExecutor with {num_workers} workers.", file=sys.stderr)
 
-            # Initial population of workers
-            for _ in range(num_workers):
+            def _submit_next_evaluation():
+                nonlocal current_eval_count
                 if current_eval_count < budget:
                     candidate = optimizer.ask()
                     future = executor.submit(objective_with_context, **candidate.kwargs)
                     pending_futures[future] = candidate
                     current_eval_count += 1
                     if debug:
-                        print(f"Nevergrad: Submitted initial task. Active tasks: {len(pending_futures)}/{num_workers}. Total evaluations: {current_eval_count}/{budget}", file=sys.stderr)
-                else:
-                    break # Budget reached
+                        print(f"Nevergrad: Submitted new task. Active tasks: {len(pending_futures)}/{num_workers}. Total evaluations: {current_eval_count}/{budget}", file=sys.stderr)
+                    return True
+                return False
+
+            # Initial population of workers
+            for _ in range(num_workers):
+                if not _submit_next_evaluation():
+                    break # Budget reached or no more tasks to submit
 
             # Main ask/tell loop: continue as long as there are pending tasks or budget allows new ones
             while (current_eval_count < budget or pending_futures) and not interrupted:
@@ -254,8 +259,6 @@ class NevergradOptimizer(BaseOptimizer):
                     break
 
                 # Wait for at least one future to complete
-                # If there are no pending futures but budget is not exhausted, this will block indefinitely.
-                # The outer while condition handles this by ensuring pending_futures is not empty if budget is not exhausted.
                 done, _ = concurrent.futures.wait(pending_futures.keys(), return_when=concurrent.futures.FIRST_COMPLETED)
 
                 for completed_future in done:
@@ -297,13 +300,9 @@ class NevergradOptimizer(BaseOptimizer):
                     break # Break from main while loop if interrupted
 
                 # Submit new tasks if budget allows and workers are free
-                while len(pending_futures) < num_workers and current_eval_count < budget:
-                    candidate = optimizer.ask()
-                    future = executor.submit(objective_with_context, **candidate.kwargs)
-                    pending_futures[future] = candidate
-                    current_eval_count += 1
-                    if debug:
-                        print(f"Nevergrad: Submitted new task. Active tasks: {len(pending_futures)}/{num_workers}. Total evaluations: {current_eval_count}/{budget}", file=sys.stderr)
+                while len(pending_futures) < num_workers:
+                    if not _submit_next_evaluation():
+                        break # Budget reached or no more tasks to submit
 
             recommendation = optimizer.provide_recommendation()
 
