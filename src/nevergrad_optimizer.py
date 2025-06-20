@@ -247,10 +247,12 @@ class NevergradOptimizer(BaseOptimizer):
                     return True
                 return False
 
-            # Initial population of workers
-            for _ in range(num_workers):
-                if not _submit_next_evaluation():
-                    break # Budget reached or no more tasks to submit
+            def _refill_queue():
+                while len(pending_futures) < num_workers:
+                    if not _submit_next_evaluation():
+                        break # Budget reached or no more tasks to submit
+
+            _refill_queue() # initial batch
 
             # Main ask/tell loop: continue as long as there are pending tasks or budget allows new ones
             while (current_eval_count < budget or pending_futures) and not interrupted:
@@ -266,9 +268,7 @@ class NevergradOptimizer(BaseOptimizer):
                     try:
                         loss = completed_future.result()
                         optimizer.tell(candidate, loss)
-
-                        # Update best fitness history with the best loss found by the optimizer so far
-                        best_loss_so_far = optimizer.current_bests["average"].loss
+                        best_loss_so_far = loss if not best_fitness_history else min(loss, min(best_fitness_history))
                         best_fitness_history.append(best_loss_so_far)
 
                         if debug:
@@ -298,11 +298,7 @@ class NevergradOptimizer(BaseOptimizer):
 
                 if interrupted:
                     break # Break from main while loop if interrupted
-
-                # Submit new tasks if budget allows and workers are free
-                while len(pending_futures) < num_workers:
-                    if not _submit_next_evaluation():
-                        break # Budget reached or no more tasks to submit
+                _refill_queue()
 
             recommendation = optimizer.provide_recommendation()
 
