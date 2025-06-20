@@ -5,7 +5,6 @@ formatting churn and improving code consistency.
 ## Features
 *   **Genetic Algorithm Optimization** 🧬: Employs a genetic algorithm with an island model to explore a wide range of `clang-format` options and find an optimal configuration.
 *   **Black-Box Optimization with Nevergrad** 📦: Integrates Nevergrad, a state-of-the-art black-box optimization library, offering alternative algorithms like CMA-ES, Differential Evolution, and more.
-*   **Abstracted Optimization Strategies**: The core optimization logic is now abstracted, allowing for easy integration of alternative optimization algorithms in the future.
 *   **Automatic Detection of `clang-format` Options** 🔍: Includes a tool to parse the latest `clang-format` documentation from the web and extracts information about available options. The result is stored in a human-readable JSON file which can be further tweaked to exclude certain options from the optimization process. Options extracted from clang-format 20 can be found in `data/clang-format-values.json`.
 *   **Forced Options** 🔒: Allows users to specify certain `clang-format` options that should always be set to a particular value, overriding the optimization process for those specific options. See `data/forced.yml` as an example of the options you would typically configure by hand.
 *   **Change Minimization** 📊: The fitness function for the genetic algorithm is based on minimizing the `git diff --shortstat` output (total insertions and
@@ -99,20 +98,7 @@ python3 main.py /home/user/my_project \
     --file-sample-percentage 25.0
 ```
 
-### Example Usage (Nevergrad)
-To optimize the `clang-format` configuration for a repository located at `/home/user/my_project` using the `Nevergrad` optimizer `CMA`, with a budget of 2000 evaluations, and 8 parallel jobs:
-
-```sh
-python3 main.py /home/user/my_project \
-    --optimizer nevergrad \
-    --option-values-json data/clang-format-values.json \
-    --forced-options-yaml data/forced.yml \
-    --ng-budget 2000 \
-    --ng-optimizer CMA \
-    --output optimized.clang-format \
-    --jobs 8 \
-    --file-sample-percentage 50.0
-```
+### Example Usage (Genetic Algorithm, Starting from an Existing Config)
 
 To start optimization from an existing `.clang-format` file named `my_base_config.clang-format`:
 
@@ -127,6 +113,22 @@ python3 main.py /home/user/my_project \
     --output optimized.clang-format \
     --plot-fitness \
     --jobs 4
+```
+
+```
+### Example Usage (Nevergrad)
+To optimize the `clang-format` configuration for a repository located at `/home/user/my_project` using the `Nevergrad` optimizer `CMA`, with a budget of 2000 evaluations, and 8 parallel jobs:
+
+```sh
+python3 main.py /home/user/my_project \
+    --optimizer nevergrad \
+    --option-values-json data/clang-format-values.json \
+    --forced-options-yaml data/forced.yml \
+    --ng-budget 2000 \
+    --ng-optimizer CMA \
+    --output optimized.clang-format \
+    --jobs 8 \
+    --file-sample-percentage 50.0
 ```
 
 ## Contributing 👋
